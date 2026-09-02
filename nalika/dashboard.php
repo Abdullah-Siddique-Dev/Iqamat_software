@@ -1,11 +1,14 @@
 <?php
+
 include "connection.php";
 include "auth.php";
 
 if (!isset($_SESSION['user'])) {
-  header("Location: ../index.php");
-  exit();
+    header("Location: ../index.php");
+    exit();
 }
+
+// Your Ayat of the Day code starts here...
 
 // ── Ayat of the Day ───────────────────────────────────────────────────────
 
@@ -135,8 +138,8 @@ $totalUsers = (int) mysqli_fetch_row($r)[0];
 $r = mysqli_query($conn, "SELECT COUNT(*) FROM users WHERE DATE_FORMAT(date_of_joining,'%Y-%m') = DATE_FORMAT(NOW(),'%Y-%m')");
 $newUsersThisMonth = (int) mysqli_fetch_row($r)[0];
 
-// ── STAT 3: Committee Members (all roles except 'member') ─────────────────
-$r = mysqli_query($conn, "SELECT COUNT(*) FROM users WHERE role != 'member'");
+// ── STAT 3: Committee Members ─────────────────────────────────────────────
+$r = mysqli_query($conn, "SELECT COUNT(*) FROM users WHERE role = 'committee'");
 $totalCommittee = (int) mysqli_fetch_row($r)[0];
 
 // ── STAT 4: Workshops This Month ──────────────────────────────────────────
@@ -256,6 +259,7 @@ $darsWeekChangePct = $darsWeekBefore > 0
 
 
 // ── All DB queries done — now safe to include layout files ─────────────────
+
 include "header.php";
 ?>
 
@@ -762,12 +766,12 @@ include "header.php";
         <div class="white-box">
           <h3 class="box-title">Quick Actions</h3>
           <div class="row g-2">
-            <div class="col-6"><a href="darsAreasInfo.php" class="nk-pm-quick-action" style="background:rgba(0,227,150,.1);color:#00e396"><i class="bi bi-geo-alt" style="font-size:24px"></i><span>Dars Areas</span></a></div>
-            <div class="col-6"><a href="registeredUsers.php" class="nk-pm-quick-action" style="background:rgba(0,143,251,.1);color:#008ffb"><i class="bi bi-people" style="font-size:24px"></i><span>Members</span></a></div>
-            <div class="col-6"><a href="upcomingEvents.php" class="nk-pm-quick-action" style="background:rgba(254,176,25,.1);color:#feb019"><i class="bi bi-calendar-event" style="font-size:24px"></i><span>Events</span></a></div>
-            <div class="col-6"><a href="pdNamazAttendance.php" class="nk-pm-quick-action" style="background:rgba(119,93,208,.1);color:#775dd0"><i class="bi bi-moon-stars" style="font-size:24px"></i><span>Namaz Track</span></a></div>
-            <div class="col-6"><a href="pdDarsAttendance.php" class="nk-pm-quick-action" style="background:rgba(255,69,96,.1);color:#ff4560"><i class="bi bi-journal-check" style="font-size:24px"></i><span>Dars Attend.</span></a></div>
-            <div class="col-6"><a href="pdQuranAttendance.php" class="nk-pm-quick-action" style="background:rgba(6,182,212,.1);color:#06b6d4"><i class="bi bi-book" style="font-size:24px"></i><span>Quran Track</span></a></div>
+            <div class="col-6"><a href="darsArea.php" class="nk-pm-quick-action" style="background:rgba(0,227,150,.1);color:#00e396"><i class="bi bi-geo-alt" style="font-size:24px"></i><span>Dars Areas</span></a></div>
+            <div class="col-6"><a href="users.php" class="nk-pm-quick-action" style="background:rgba(0,143,251,.1);color:#008ffb"><i class="bi bi-people" style="font-size:24px"></i><span>Members</span></a></div>
+            <div class="col-6"><a href="events.php" class="nk-pm-quick-action" style="background:rgba(254,176,25,.1);color:#feb019"><i class="bi bi-calendar-event" style="font-size:24px"></i><span>Events</span></a></div>
+            <div class="col-6"><a href="namazAttendance.php" class="nk-pm-quick-action" style="background:rgba(119,93,208,.1);color:#775dd0"><i class="bi bi-moon-stars" style="font-size:24px"></i><span>Namaz Track</span></a></div>
+            <div class="col-6"><a href="darsAttendance.php" class="nk-pm-quick-action" style="background:rgba(255,69,96,.1);color:#ff4560"><i class="bi bi-journal-check" style="font-size:24px"></i><span>Dars Attend.</span></a></div>
+            <div class="col-6"><a href="quranAttendance.php" class="nk-pm-quick-action" style="background:rgba(6,182,212,.1);color:#06b6d4"><i class="bi bi-book" style="font-size:24px"></i><span>Quran Track</span></a></div>
           </div>
         </div>
       </div>
@@ -782,32 +786,23 @@ include "header.php";
     var pmCommittee = <?= (int)$totalCommittee ?>;
     var pmWorkshops = <?= (int)$workshopsThisMonth ?>;
 
+    // Trend data for sparklines
+    var quranTrendData = <?= $quranTrendJson ?>;
+    var darsTrendData = <?= $darsTrendJson ?>;
 
-  var pmAreaCount      = <?= (int)$totalAreas ?>;
-  var pmTotalUsers     = <?= (int)$totalUsers ?>;
-  var pmCommittee      = <?= (int)$totalCommittee ?>;
-  var pmWorkshops      = <?= (int)$workshopsThisMonth ?>;
+    // Combined: sum of both for overview card
+    var combinedTrend = quranTrendData.map(function(v, i) {
+        return v + (darsTrendData[i] || 0);
+    });
+</script>
 
-  // Trend data for sparklines
-  var quranTrendData = <?= $quranTrendJson ?>;
-  var darsTrendData  = <?= $darsTrendJson ?>;
-  // Combined: sum of both for overview card
-  var combinedTrend  = quranTrendData.map(function(v, i) { return v + (darsTrendData[i] || 0); });
-
-
-  </script>
-
-
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/simplebar@6.2.7/dist/simplebar.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/apexcharts@5.3.6/dist/apexcharts.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.20/index.global.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
-  <script src="js/main.js"></script>
-
-
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/simplebar@6.2.7/dist/simplebar.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts@5.3.6/dist/apexcharts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.20/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+<script src="js/main.js"></script>
 
 </body>
-
 </html>

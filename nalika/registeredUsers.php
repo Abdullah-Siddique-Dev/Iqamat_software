@@ -34,35 +34,6 @@ include "header.php";
     <?php
     include "mainTopBar.php";
     ?>
-    <!-- <div class="breadcome-area">
-        <div class="container-fluid">
-            <div class="row">
-                <div class="col-lg-12 col-md-12 col-sm-12 col-12">
-                    <div class="breadcome-list single-page-breadcome">
-                        <div class="row">
-                            <div class="col-lg-6 col-md-6 col-sm-6 col-6">
-                                <div class="breadcome-heading">
-                                    <form role="search" class="">
-                                        <input type="text" placeholder="Search..." class="form-control">
-                                        <a href=""><i class="bi bi-search"></i></a>
-                                    </form>
-                                </div>
-                            </div>
-                            <div class="col-lg-6 col-md-6 col-sm-6 col-6">
-                                <ul class="breadcome-menu">
-                                    <li><a href="#">Home</a> <span class="bread-slash">/</span>
-                                    </li>
-                                    <li><span class="bread-blod">Static Table</span>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    </div> -->
     <!-- Static Table Start -->
     <div class="static-table-area mg-t-15">
         <div class="container-fluid">
@@ -185,15 +156,11 @@ include "footer.php"; ?>
                                 }
                                 if (empty($areasList)) {
                                     $areasList = [
-                                        "Adyala Road Circle",
-                                        "Bahria Phase 4 Group",
-                                        "Chaklala Scheme Circle",
-                                        "Commercial Market Group",
-                                        "Gulraiz Community",
-                                        "Gulshan Colony2",
-                                        "PWD Housing Dars",
-                                        "Satellite Town Circle",
-                                        "Westridge Circle"
+                                        "Gulshan Colony",
+                                        "PM Colony",
+                                        "Asifabad Colony",
+                                        "Anwar Chowk",
+                                        "Rawalpindi"
                                     ];
                                 }
                                 foreach ($areasList as $aName):
@@ -250,97 +217,77 @@ include "footer.php"; ?>
                         Delete
                     </button>
                 </div>
-
             </div>
         </div>
     </div>
 
-
     <script>
+        let currentSort = {
+            column: null,
+            asc: true
+        };
 
-const canEditUser   = <?= hasFeature("editUser")   ? "true" : "false" ?>;
-const canDeleteUser = <?= hasFeature("deleteUser") ? "true" : "false" ?>;
-
-function buildUserRow(user, index) {
-    return `
-        <tr>
-            <td>${index + 1}</td>
-            <td>${user.firstName} ${user.lastName}</td>
-            <td>${user.username}</td>
-            <td>${user.age ?? '-'}</td>
-            <td>${user.gender ?? '-'}</td>
-            <td>${user.email}</td>
-            <td>${user.phone ?? '-'}</td>
-            <td>${user.cnic ?? '-'}</td>
-            <td>
-                <span class="badge ${user.status === 'Active' ? 'badge-success' : 'badge-secondary'}">
-                    ${user.status ?? 'N/A'}
-                </span>
-            </td>
-            <td>${roleLabels[user.role] ?? '-'}</td>
-            <td>
-                <button class="btn btn-sm btn-info" onclick="viewUser(${user.id})">View</button>
-                ${canEditUser   ? `<button class="btn btn-sm btn-primary" onclick="editUser(${user.id})">Edit</button>`   : ''}
-                ${canDeleteUser ? `<button class="btn btn-sm btn-danger"  onclick="deleteUser(${user.id})">Delete</button>` : ''}
-            </td>
-        </tr>`;
-}
-
-        // Real-time search
-document.getElementById('searchInput').addEventListener('input', function () {
-    const query = this.value.toLowerCase().trim();
-
-    const filtered = users.filter(user => {
-        const fullName  = (user.firstName + ' ' + user.lastName).toLowerCase();
-        const firstName = (user.firstName || '').toLowerCase();
-        const lastName  = (user.lastName  || '').toLowerCase();
-        const email     = (user.email     || '').toLowerCase();
-        return fullName.startsWith(query) || firstName.startsWith(query) ||
-               lastName.startsWith(query) || email.startsWith(query);
-    });
-
-    renderUsers(filtered);
-});
-
-        function renderFilteredUsers(filteredUsers) {
-            const tableBody = document.getElementById("userTableBody");
-            tableBody.innerHTML = "";
-
-            if (filteredUsers.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="11" class="text-center">No users found</td></tr>`;
-                return;
+        function sortTable(column) {
+            if (currentSort.column === column) {
+                currentSort.asc = !currentSort.asc;
+            } else {
+                currentSort.column = column;
+                currentSort.asc = true;
             }
 
-            filteredUsers.forEach((user, index) => {
-                tableBody.innerHTML += `
-            <tr>
-                <td>${index + 1}</td>
-                <td>${user.firstName} ${user.lastName}</td>
-                <td>${user.username}</td>
-                <td>${user.age ?? '-'}</td>
-                <td>${user.gender ?? '-'}</td>
-                <td>${user.email}</td>
-                <td>${user.phone ?? '-'}</td>
-                <td>${user.area ?? '-'}</td>
-                <td>
-                    <span class="badge ${user.status === 'Active' ? 'badge-success' : 'badge-secondary'}">
-                        ${user.status ?? 'N/A'}
-                    </span>
-                </td>
-                <td>${roleLabels[user.role] ?? roleLabels[user.roles] ?? user.role ?? '-'}</td>
-                <td>
-                    <button class="btn btn-sm btn-info" onclick="viewUser(${user.id})">View</button>
-                    <?php if (hasFeature("editUser")) { ?>
-                    <button class="btn btn-sm btn-primary" onclick="editUser(${user.id})">Edit</button>
-                    <?php } ?>
-                    <?php if (hasFeature("deleteUser")) { ?>
-                    <button class="btn btn-sm btn-danger" onclick="deleteUser(${user.id})">Delete</button>
-                    <?php } ?>
-                </td>
-            </tr>
-        `;
+            users.sort((a, b) => {
+                let valA = getSortValue(a, column);
+                let valB = getSortValue(b, column);
+
+                if (valA < valB) return currentSort.asc ? -1 : 1;
+                if (valA > valB) return currentSort.asc ? 1 : -1;
+                return 0;
             });
+
+            renderUsers(users);
         }
+
+        function getSortValue(user, column) {
+            switch (column) {
+                case 'fullName':
+                    return `${user.firstName} ${user.lastName}`.toLowerCase();
+                case 'username':
+                    return user.username.toLowerCase();
+                case 'age':
+                    return parseInt(user.age) || 0;
+                case 'gender':
+                    return (user.gender || '').toLowerCase();
+                case 'email':
+                    return user.email.toLowerCase();
+                case 'phone':
+                    return user.phone || '';
+                case 'area':
+                    return (user.area || '').toLowerCase();
+                case 'status':
+                    return (user.status || '').toLowerCase();
+                case 'role':
+                    return (user.role || user.roles || '').toLowerCase();
+                default:
+                    return '';
+            }
+        }
+
+        // Real-time search
+        document.getElementById('searchInput').addEventListener('input', function () {
+            const query = this.value.toLowerCase().trim();
+
+            const filtered = users.filter(user => {
+                const fullName  = (user.firstName + ' ' + user.lastName).toLowerCase();
+                const firstName = (user.firstName || '').toLowerCase();
+                const lastName  = (user.lastName  || '').toLowerCase();
+                const email     = (user.email     || '').toLowerCase();
+                const area      = (user.area      || '').toLowerCase();
+                return fullName.startsWith(query) || firstName.startsWith(query) ||
+                       lastName.startsWith(query) || email.startsWith(query) || area.includes(query);
+            });
+
+            renderUsers(filtered);
+        });
     </script>
 
     <script>
@@ -398,15 +345,16 @@ document.getElementById('searchInput').addEventListener('input', function () {
             representative: "Representative"
         };
 
-  async function loadUsers() {
-    try {
-        const response = await fetch("fetchUsers.php");
-        users = await response.json();
-        renderUsers(users);
-    } catch (error) {
-        console.error("Error loading users:", error);
-    }
-}
+        async function loadUsers() {
+            try {
+                const response = await fetch("fetchUsers.php");
+                users = await response.json();
+                renderUsers(users);
+            } catch (error) {
+                console.error("Error loading users:", error);
+            }
+        }
+
         function viewUser(id) {
             alert("View user ID: " + id);
         }
@@ -468,106 +416,43 @@ document.getElementById('searchInput').addEventListener('input', function () {
 
         loadUsers();
 
+        function renderUsers(list) {
+            const tableBody = document.getElementById("userTableBody");
+            tableBody.innerHTML = "";
 
-function renderUsers(list) {
-    const tableBody = document.getElementById("userTableBody");
-    tableBody.innerHTML = "";
+            if (!list || list.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="11" class="text-center">No users found</td></tr>`;
+                return;
+            }
 
-    if (!list || list.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="11" class="text-center">No users found</td></tr>`;
-        return;
-    }
+            list.forEach((user, index) => {
+                const canEditUser   = <?php echo hasFeature("editUser")   ? 'true' : 'false'; ?>;
+                const canDeleteUser = <?php echo hasFeature("deleteUser") ? 'true' : 'false'; ?>;
 
-    list.forEach((user, index) => {
-        const canEditUser   = <?php echo hasFeature("editUser")   ? 'true' : 'false'; ?>;
-        const canDeleteUser = <?php echo hasFeature("deleteUser") ? 'true' : 'false'; ?>;
-
-        tableBody.innerHTML += `
-        <tr>
-            <td>${index + 1}</td>
-            <td>${user.firstName} ${user.lastName}</td>
-            <td>${user.username}</td>
-            <td>${user.age ?? '-'}</td>
-            <td>${user.gender ?? '-'}</td>
-            <td>${user.email}</td>
-            <td>${user.phone ?? '-'}</td>
-            <td>${user.area ?? '-'}</td>
-            <td>
-                <span class="badge ${user.status === 'Active' ? 'badge-success' : 'badge-secondary'}">
-                    ${user.status ?? 'N/A'}
-                </span>
-            </td>
-            <td>${roleLabels[user.role] ?? roleLabels[user.roles] ?? user.role ?? '-'}</td>
-            <td>
-                <button class="btn btn-sm btn-info" onclick="viewUser(${user.id})">View</button>
-                ${canEditUser   ? `<button class="btn btn-sm btn-primary" onclick="editUser(${user.id})">Edit</button>`   : ''}
-                ${canDeleteUser ? `<button class="btn btn-sm btn-danger"  onclick="deleteUser(${user.id})">Delete</button>` : ''}
-            </td>
-        </tr>`;
-    });
-}
-
-
-
-
-
-
-function renderUsers(list) {
-    const tableBody = document.getElementById("userTableBody");
-    tableBody.innerHTML = "";
-
-    if (!list || list.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="11" class="text-center">No users found</td></tr>`;
-        return;
-    }
-
-    list.forEach((user, index) => {
-        tableBody.innerHTML += buildUserRow(user, index);
-    });
-}
-
-        let sortDirection = {}; // track asc/desc per column
-
-function sortTable(column) {
-    sortDirection[column] = !sortDirection[column];
-
-    users.sort((a, b) => {
-        let valA, valB;
-        if (column === 'fullName') {
-            valA = (a.firstName + ' ' + a.lastName).toLowerCase();
-            valB = (b.firstName + ' ' + b.lastName).toLowerCase();
-        } else if (column === 'age') {
-            valA = Number(a[column]) || 0;
-            valB = Number(b[column]) || 0;
-        } else {
-            valA = (a[column] ?? '').toString().toLowerCase();
-            valB = (b[column] ?? '').toString().toLowerCase();
+                tableBody.innerHTML += `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${user.firstName} ${user.lastName}</td>
+                    <td>${user.username}</td>
+                    <td>${user.age ?? '-'}</td>
+                    <td>${user.gender ?? '-'}</td>
+                    <td>${user.email}</td>
+                    <td>${user.phone ?? '-'}</td>
+                    <td>${user.area ?? '-'}</td>
+                    <td>
+                        <span class="badge ${user.status === 'Active' ? 'badge-success' : 'badge-secondary'}">
+                            ${user.status ?? 'N/A'}
+                        </span>
+                    </td>
+                    <td>${roleLabels[user.role] ?? roleLabels[user.roles] ?? user.role ?? '-'}</td>
+                    <td>
+                        <button class="btn btn-sm btn-info" onclick="viewUser(${user.id})">View</button>
+                        ${canEditUser   ? `<button class="btn btn-sm btn-primary" onclick="editUser(${user.id})">Edit</button>`   : ''}
+                        ${canDeleteUser ? `<button class="btn btn-sm btn-danger"  onclick="deleteUser(${user.id})">Delete</button>` : ''}
+                    </td>
+                </tr>`;
+            });
         }
-
-        if (valA < valB) return sortDirection[column] ? -1 : 1;
-        if (valA > valB) return sortDirection[column] ?  1 : -1;
-        return 0;
-    });
-
-    renderUsers(users);
-}
     </script>
-
-
-    <!-- sparkline JS
-		============================================ -->
-    <!-- Bootstrap 5.3.8 Bundle (includes Popper)
-		============================================ -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- AOS 2.3.4
-		============================================ -->
-    <script src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
-    <!-- SimpleBar 6.2.7
-		============================================ -->
-    <script src="https://cdn.jsdelivr.net/npm/simplebar@6.2.7/dist/simplebar.min.js"></script>
-    <!-- main JS
-		============================================ -->
-    <script src="js/main.js"></script>
 </body>
-
 </html>

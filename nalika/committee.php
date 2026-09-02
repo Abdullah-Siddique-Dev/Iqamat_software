@@ -1,7 +1,10 @@
 <?php
 include "connection.php";
-include "auth.php";
-include "pagePermission.php";
+session_start();
+if (!isset($_SESSION['user'])) {
+    header("Location: ../index.php");
+    exit();
+}
 ?>
 
 <!doctype html>
@@ -70,6 +73,7 @@ include "pagePermission.php";
 </style>
 
 <body>
+    <?php include "auth.php"; ?>
     <?php include "sidebar.php"; ?>
     <?php include "mainTopBar.php"; ?>
 
@@ -334,8 +338,8 @@ include "pagePermission.php";
                 const res = await fetch('fetchUsers.php');
                 allMembersList = await res.json();
 
-                // Filter committee = role != member
-                committeeList = allMembersList.filter(u => u.role !== 'member');
+                // Filter committee members: role === 'committee'
+                committeeList = allMembersList.filter(u => u.role === 'committee');
                 renderTable(committeeList);
             } catch (e) {
                 console.error('Error loading users:', e);

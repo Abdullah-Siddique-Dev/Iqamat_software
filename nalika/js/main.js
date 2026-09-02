@@ -607,12 +607,12 @@ function initProjectDashboard() {
   var committeeCount = (typeof pmCommittee  !== 'undefined') ? pmCommittee  : 0;
   var workshopCount  = (typeof pmWorkshops  !== 'undefined') ? pmWorkshops  : 0;
 
-  // ── Radial % calculations (adjust max values to your org scale) ───────────
+  // ── Radial % calculations (realistic proportions) ───────────────────────
   var radials = [
-    { id: 'pmRadial1', value: Math.min(Math.round((areaCount      / 10)  * 100), 100), color: '#ab8ce4' },
-    { id: 'pmRadial2', value: Math.min(Math.round((totalUsers     / 10) * 100), 100), color: '#f8ac59' },
-    { id: 'pmRadial3', value: Math.min(Math.round((committeeCount / 30)  * 100), 100), color: '#24caa1' },
-    { id: 'pmRadial4', value: Math.min(Math.round((workshopCount  / 10)  * 100), 100), color: '#03a9f4' },
+    { id: 'pmRadial1', value: areaCount > 0 ? 100 : 0, color: '#ab8ce4' },
+    { id: 'pmRadial2', value: totalUsers > 0 ? 100 : 0, color: '#f8ac59' },
+    { id: 'pmRadial3', value: totalUsers > 0 ? Math.min(Math.round((committeeCount / totalUsers) * 100), 100) : 0, color: '#24caa1' },
+    { id: 'pmRadial4', value: workshopCount > 0 ? Math.min(Math.round((workshopCount / 5) * 100), 100) : 0, color: '#03a9f4' },
   ];
 
   radials.forEach(function (cfg) {

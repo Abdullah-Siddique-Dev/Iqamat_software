@@ -136,12 +136,8 @@
             </form>
         </div>
 
-        <a href="nalika/dashboard.php" class="text-decoration-none" style="color:#5a6a7f; font-size:13px;">
-            <i class="bi bi-arrow-left me-1"></i>Back to Dashboard
-        </a>
-
         <div class="nk-auth-footer mt-4">
-            <?php include "nalika/footer.php"; ?>
+            <?php include "footer.php"; ?>
         </div>
     </div>
 
