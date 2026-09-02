@@ -54,6 +54,14 @@
                     </a>
                 </li>
                 <?php endif; ?>
+                <?php if(hasPermission("adminTasks")): ?>
+                <li>
+                    <a href="adminTasks.php">
+                        <i class="bi big-icon bi-card-checklist icon-wrap"></i>
+                        <span class="mini-click-non">Card System</span>
+                    </a>
+                </li>
+                <?php endif; ?>
                 <?php if(hasPermission("pdDarsAttendance")): ?>
                 <li>
                     <a href="upcomingEvents.php">
@@ -78,7 +86,7 @@
                         <span class="mini-click-non">Dars Attendance</span>
                     </a>
                 </li> -->
-                <?php if(hasPermission("pdQuranAttendance") || hasPermission("pdDawah") || hasPermission("pdNamazAttendance") || hasPermission("pdTimeTracker") || hasPermission("adminTasks")): ?>
+                <?php if(hasPermission("pdQuranAttendance") || hasPermission("pdDawah") || hasPermission("pdNamazAttendance") || hasPermission("pdTimeTracker")): ?>
                 <li>
                     <a class="has-arrow" href="#" aria-expanded="false">
                         <i class="bi bi-person-heart big-icon icon-wrap"></i>
@@ -89,9 +97,6 @@
                         <li><a href="pdDawah.php"><span class="mini-sub-pro"><i class="bi bi-megaphone"></i>  Dawah</span></a></li>
                         <li><a href="pdNamazAttendance.php"><span class="mini-sub-pro"><i class="bi bi-clock-history"></i>  Namaz Attendance</span></a></li>
                         <li><a href="pdTimeTracker.php"><span class="mini-sub-pro"><i class="bi bi-stopwatch"></i>  Time Tracker</span></a></li>
-                        <?php if(hasPermission("adminTasks")): ?>
-                        <li><a href="adminTasks.php"><span class="mini-sub-pro"><i class="bi bi-card-checklist"></i>  Manage Tasks</span></a></li>
-                        <?php endif; ?>
                     </ul>
                 </li>
                 <?php endif; ?>
