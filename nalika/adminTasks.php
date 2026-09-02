@@ -277,20 +277,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Insert or Update submission
-        $checkExisting = mysqli_query($conn, "SELECT document_path FROM user_task_submissions WHERE task_id = '$taskId' AND user_id = '$loggedUserId'");
+        $checkExisting = mysqli_query($conn, "SELECT document_path, status FROM user_task_submissions WHERE task_id = '$taskId' AND user_id = '$loggedUserId'");
         if ($checkExisting && mysqli_num_rows($checkExisting) > 0) {
             $existingRow = mysqli_fetch_assoc($checkExisting);
-            if (empty($docPath)) {
-                $docPath = $existingRow['document_path']; // preserve existing document if new file wasn't uploaded
-            }
-            $docSql = !empty($docPath) ? ", document_path = '$docPath'" : "";
-            $updateSubSql = "UPDATE user_task_submissions SET submission_notes = '$notes' $docSql, status = 'Pending', submitted_at = NOW() WHERE task_id = '$taskId' AND user_id = '$loggedUserId'";
-            if (mysqli_query($conn, $updateSubSql)) {
-                $message = "Task submission updated successfully! Pending admin approval.";
-                $messageType = "success";
+            if ($existingRow['status'] === 'Approved') {
+                $message = "This task has already been approved and cannot be modified.";
+                $messageType = "warning";
             } else {
-                $message = "Error updating submission: " . mysqli_error($conn);
-                $messageType = "danger";
+                if (empty($docPath)) {
+                    $docPath = $existingRow['document_path']; // preserve existing document if new file wasn't uploaded
+                }
+                $docSql = !empty($docPath) ? ", document_path = '$docPath'" : "";
+                $updateSubSql = "UPDATE user_task_submissions SET submission_notes = '$notes' $docSql, status = 'Pending', submitted_at = NOW() WHERE task_id = '$taskId' AND user_id = '$loggedUserId'";
+                if (mysqli_query($conn, $updateSubSql)) {
+                    $message = "Task submission updated successfully! Pending admin approval.";
+                    $messageType = "success";
+                } else {
+                    $message = "Error updating submission: " . mysqli_error($conn);
+                    $messageType = "danger";
+                }
             }
         } else {
             $insertSubSql = "INSERT INTO user_task_submissions (task_id, user_id, submission_notes, document_path, status, submitted_at) VALUES ('$taskId', '$loggedUserId', '$notes', '$docPath', 'Pending', NOW())";
@@ -795,21 +800,56 @@ if ($loggedUserId) {
                                                                 <i class="bi bi-folder-symlink-fill"></i> Submissions (<?php echo $totalSubs; ?>)
                                                             </button>
                                                         <?php else: ?>
-                                                            <!-- Member / Trainee Actions -->
-                                                            <button type="button" class="btn-user-submit"
-                                                                data-id="<?php echo $row['id']; ?>"
-                                                                data-task-code="<?php echo $taskCode; ?>"
-                                                                data-task-name="<?php echo $taskDisplayName; ?>"
-                                                                data-description="<?php echo htmlspecialchars($row['description']); ?>"
-                                                                data-specifics="<?php echo htmlspecialchars($row['specifics'] ?? ''); ?>"
-                                                                data-expiry="<?php echo $expiryFormatted; ?>"
-                                                                data-is-expired="<?php echo $isExpired ? '1' : '0'; ?>"
-                                                                data-notes="<?php echo htmlspecialchars($sub['submission_notes'] ?? ''); ?>"
-                                                                data-doc="<?php echo htmlspecialchars($sub['document_path'] ?? ''); ?>"
-                                                                data-status="<?php echo htmlspecialchars($subStatus); ?>"
-                                                                onclick="openUserSubmitModal(this)">
-                                                                <i class="bi bi-upload"></i> <?php echo $sub ? 'View / Edit Document' : 'Start / Submit Task'; ?>
-                                                            </button>
+                                                            <!-- Member / Trainee Actions according to Submission Status -->
+                                                            <?php if ($subStatus === 'Approved'): ?>
+                                                                <button type="button" class="btn-user-submit"
+                                                                    style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); border-color:#059669; color:#fff;"
+                                                                    data-id="<?php echo $row['id']; ?>"
+                                                                    data-task-code="<?php echo $taskCode; ?>"
+                                                                    data-task-name="<?php echo $taskDisplayName; ?>"
+                                                                    data-description="<?php echo htmlspecialchars($row['description']); ?>"
+                                                                    data-specifics="<?php echo htmlspecialchars($row['specifics'] ?? ''); ?>"
+                                                                    data-expiry="<?php echo $expiryFormatted; ?>"
+                                                                    data-is-expired="<?php echo $isExpired ? '1' : '0'; ?>"
+                                                                    data-notes="<?php echo htmlspecialchars($sub['submission_notes'] ?? ''); ?>"
+                                                                    data-doc="<?php echo htmlspecialchars($sub['document_path'] ?? ''); ?>"
+                                                                    data-status="Approved"
+                                                                    onclick="openUserSubmitModal(this)">
+                                                                    <i class="bi bi-file-earmark-check"></i> View Document
+                                                                </button>
+                                                            <?php elseif ($subStatus === 'Pending'): ?>
+                                                                <button type="button" class="btn-user-submit"
+                                                                    style="background: linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%); border-color:#0284c7; color:#fff;"
+                                                                    data-id="<?php echo $row['id']; ?>"
+                                                                    data-task-code="<?php echo $taskCode; ?>"
+                                                                    data-task-name="<?php echo $taskDisplayName; ?>"
+                                                                    data-description="<?php echo htmlspecialchars($row['description']); ?>"
+                                                                    data-specifics="<?php echo htmlspecialchars($row['specifics'] ?? ''); ?>"
+                                                                    data-expiry="<?php echo $expiryFormatted; ?>"
+                                                                    data-is-expired="<?php echo $isExpired ? '1' : '0'; ?>"
+                                                                    data-notes="<?php echo htmlspecialchars($sub['submission_notes'] ?? ''); ?>"
+                                                                    data-doc="<?php echo htmlspecialchars($sub['document_path'] ?? ''); ?>"
+                                                                    data-status="Pending"
+                                                                    onclick="openUserSubmitModal(this)">
+                                                                    <i class="bi bi-pencil-square"></i> View / Edit Document
+                                                                </button>
+                                                            <?php else: ?>
+                                                                <button type="button" class="btn-user-submit"
+                                                                    style="background: linear-gradient(135deg, #0d6efd 0%, #3b82f6 100%); border-color:#0d6efd; color:#fff;"
+                                                                    data-id="<?php echo $row['id']; ?>"
+                                                                    data-task-code="<?php echo $taskCode; ?>"
+                                                                    data-task-name="<?php echo $taskDisplayName; ?>"
+                                                                    data-description="<?php echo htmlspecialchars($row['description']); ?>"
+                                                                    data-specifics="<?php echo htmlspecialchars($row['specifics'] ?? ''); ?>"
+                                                                    data-expiry="<?php echo $expiryFormatted; ?>"
+                                                                    data-is-expired="<?php echo $isExpired ? '1' : '0'; ?>"
+                                                                    data-notes=""
+                                                                    data-doc=""
+                                                                    data-status="Not Started"
+                                                                    onclick="openUserSubmitModal(this)">
+                                                                    <i class="bi bi-upload"></i> Submit / Upload Document
+                                                                </button>
+                                                            <?php endif; ?>
                                                         <?php endif; ?>
                                                     </td>
                                                 </tr>
@@ -1057,14 +1097,14 @@ if ($loggedUserId) {
     </div>
     <?php endif; ?>
 
-    <!-- ── USER START / SUBMIT TASK MODAL ── -->
+    <!-- ── USER START / SUBMIT / VIEW TASK MODAL ── -->
     <div class="modal fade" id="userSubmitModal" tabindex="-1" aria-labelledby="userSubmitModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content" style="background:#192436; border:1px solid #293647; color:#fff;">
-                <form method="POST" enctype="multipart/form-data">
+                <form method="POST" enctype="multipart/form-data" id="userSubmitForm">
                     <div class="modal-header" style="border-bottom:1px solid #293647;">
                         <h5 class="modal-title text-white" id="userSubmitModalLabel">
-                            <i class="bi bi-upload text-info me-2"></i>Submit Task / Document
+                            <i class="bi bi-upload text-info me-2" id="userModalHeaderIcon"></i><span id="userModalHeaderTitle">Submit Task / Document</span>
                         </h5>
                         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
@@ -1072,12 +1112,17 @@ if ($loggedUserId) {
                         <input type="hidden" name="action" value="user_submit_task">
                         <input type="hidden" name="task_id" id="user_task_id">
 
+                        <!-- Task Details Card -->
                         <div class="p-3 mb-3" style="background:#101726; border-radius:8px; border:1px solid #293647;">
                             <label class="text-white small font-weight-bold d-block mb-1">TASK DETAILS</label>
                             <div id="userTaskDescText" class="text-white font-weight-bold mb-2" style="font-size:0.92rem;"></div>
                             <div id="userTaskSpecificsText" class="text-info small" style="display:none;"></div>
                         </div>
 
+                        <!-- Status Alert Banner -->
+                        <div id="userStatusBanner" class="mb-3" style="display:none;"></div>
+
+                        <!-- Uploaded File Alert -->
                         <div id="existingDocAlert" class="mb-3" style="display:none;">
                             <div class="p-2 px-3 d-flex justify-content-between align-items-center" style="background:rgba(2,132,199,0.15); border:1px solid rgba(2,132,199,0.3); border-radius:6px;">
                                 <span class="small text-info"><i class="bi bi-file-earmark-check me-1"></i>Uploaded File:</span>
@@ -1087,20 +1132,22 @@ if ($loggedUserId) {
                             </div>
                         </div>
 
-                        <div class="mb-3">
-                            <label class="form-label text-white small font-weight-bold mb-1">Attach Document (PDF, DOCX, Image)</label>
-                            <input type="file" name="task_document" class="form-control" style="background:#101726; border-color:#293647; color:#fff;" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.txt">
-                            <small class="text-muted">Upload your work file or leave blank to keep existing file.</small>
+                        <!-- Attach Document section (hidden when Approved) -->
+                        <div class="mb-3" id="docUploadGroup">
+                            <label class="form-label text-white small font-weight-bold mb-1" id="docUploadLabel">Attach Document (PDF, DOCX, Image)</label>
+                            <input type="file" name="task_document" id="user_task_document" class="form-control" style="background:#101726; border-color:#293647; color:#fff;" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.txt">
+                            <small class="text-muted" id="docUploadHelp">Upload your work file (PDF, DOCX, Image, Text).</small>
                         </div>
 
+                        <!-- Notes section (readonly when Approved) -->
                         <div class="mb-3">
-                            <label class="form-label text-white small font-weight-bold mb-1">Submission Notes / Details</label>
+                            <label class="form-label text-white small font-weight-bold mb-1" id="notesLabel">Submission Notes / Details</label>
                             <textarea name="submission_notes" id="user_submission_notes" class="form-control" rows="3" style="background:#101726; border-color:#293647; color:#fff;" placeholder="Add any comments or notes about your work..."></textarea>
                         </div>
                     </div>
                     <div class="modal-footer" style="border-top:1px solid #293647;">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-info text-white font-weight-bold">Submit Document</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" id="userSubmitBtn" class="btn btn-info text-white font-weight-bold">Submit Document</button>
                     </div>
                 </form>
             </div>
@@ -1172,6 +1219,7 @@ if ($loggedUserId) {
         var isExpired = btn.getAttribute('data-is-expired');
         var notes = btn.getAttribute('data-notes');
         var doc = btn.getAttribute('data-doc');
+        var status = btn.getAttribute('data-status') || 'Not Started';
 
         document.getElementById('user_task_id').value = id;
         
@@ -1196,10 +1244,17 @@ if ($loggedUserId) {
             specsBox.innerHTML = '';
         }
 
-        document.getElementById('user_submission_notes').value = notes || '';
+        var notesField = document.getElementById('user_submission_notes');
+        notesField.value = notes || '';
 
         var alertBox = document.getElementById('existingDocAlert');
         var docLink = document.getElementById('existingDocLink');
+        var statusBanner = document.getElementById('userStatusBanner');
+        var docUploadGroup = document.getElementById('docUploadGroup');
+        var userSubmitBtn = document.getElementById('userSubmitBtn');
+        var headerIcon = document.getElementById('userModalHeaderIcon');
+        var headerTitle = document.getElementById('userModalHeaderTitle');
+        var docUploadHelp = document.getElementById('docUploadHelp');
 
         if (doc && doc.trim() !== '') {
             alertBox.style.display = 'block';
@@ -1207,6 +1262,44 @@ if ($loggedUserId) {
         } else {
             alertBox.style.display = 'none';
             docLink.href = '#';
+        }
+
+        if (status === 'Approved') {
+            // Case 3: APPROVED - User can ONLY VIEW
+            headerIcon.className = 'bi bi-file-earmark-check text-success me-2';
+            headerTitle.textContent = 'Approved Task Submission';
+            statusBanner.style.display = 'block';
+            statusBanner.innerHTML = '<div class="p-2 px-3" style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); border-radius:6px; color:#34d399; font-size:0.85rem;"><i class="bi bi-check-circle-fill me-2"></i><strong>Submission Approved!</strong> This task submission is approved and locked.</div>';
+            docUploadGroup.style.display = 'none';
+            notesField.readOnly = true;
+            notesField.style.background = '#0d131f';
+            userSubmitBtn.style.display = 'none';
+        } else if (status === 'Pending') {
+            // Case 2: PENDING APPROVAL - User can VIEW or EDIT
+            headerIcon.className = 'bi bi-pencil-square text-warning me-2';
+            headerTitle.textContent = 'View / Edit Task Submission';
+            statusBanner.style.display = 'block';
+            statusBanner.innerHTML = '<div class="p-2 px-3" style="background:rgba(234,179,8,0.15); border:1px solid rgba(234,179,8,0.3); border-radius:6px; color:#fbbf24; font-size:0.85rem;"><i class="bi bi-hourglass-split me-2"></i><strong>Pending Approval.</strong> You can edit your notes or upload a new file below.</div>';
+            docUploadGroup.style.display = 'block';
+            docUploadHelp.textContent = doc ? 'Upload a new file to replace existing document, or leave blank to keep current file.' : 'Attach your document (PDF, DOCX, Image)';
+            notesField.readOnly = false;
+            notesField.style.background = '#101726';
+            userSubmitBtn.style.display = 'inline-block';
+            userSubmitBtn.className = 'btn btn-warning text-white font-weight-bold';
+            userSubmitBtn.textContent = 'Update Submission';
+        } else {
+            // Case 1: NOT SUBMITTED - User can SUBMIT / UPLOAD
+            headerIcon.className = 'bi bi-upload text-info me-2';
+            headerTitle.textContent = 'Submit Task / Document';
+            statusBanner.style.display = 'none';
+            statusBanner.innerHTML = '';
+            docUploadGroup.style.display = 'block';
+            docUploadHelp.textContent = 'Upload your work file (PDF, DOCX, Image, Text).';
+            notesField.readOnly = false;
+            notesField.style.background = '#101726';
+            userSubmitBtn.style.display = 'inline-block';
+            userSubmitBtn.className = 'btn btn-primary font-weight-bold';
+            userSubmitBtn.textContent = 'Submit Document';
         }
 
         var submitModal = new bootstrap.Modal(document.getElementById('userSubmitModal'));
