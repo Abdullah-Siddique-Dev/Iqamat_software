@@ -18,7 +18,7 @@ if ($taskId <= 0) {
     exit;
 }
 
-$query = "SELECT uts.*, u.firstName, u.lastName, u.username, u.area, u.role, t.task_code, t.expiry_date 
+$query = "SELECT uts.*, u.firstName, u.lastName, u.username, u.area, u.role, t.task_code, t.task_name, t.expiry_date 
           FROM user_task_submissions uts 
           JOIN users u ON uts.user_id = u.id 
           LEFT JOIN admin_tasks t ON uts.task_id = t.id

@@ -15,11 +15,13 @@ $canManageTasks = hasFeature("addTask") || in_array(strtolower($loggedRole ?? ''
 $createTableSql = "CREATE TABLE IF NOT EXISTS `admin_tasks` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `task_code` VARCHAR(50) NULL,
+  `task_name` VARCHAR(255) NULL,
   `card` VARCHAR(50) NULL,
   `category` VARCHAR(50) NULL,
   `specific_member_id` INT NULL,
   `description` TEXT NOT NULL,
   `specifics` TEXT NULL,
+  `expiry_date` DATETIME NULL,
   `frequency` VARCHAR(50) DEFAULT 'Weekly',
   `created_by` VARCHAR(100) DEFAULT 'admin admin',
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -28,11 +30,10 @@ mysqli_query($conn, $createTableSql);
 
 // Ensure new columns exist if table was created previously
 @mysqli_query($conn, "ALTER TABLE `admin_tasks` ADD COLUMN `task_code` VARCHAR(50) NULL AFTER `category`");
+@mysqli_query($conn, "ALTER TABLE `admin_tasks` ADD COLUMN `task_name` VARCHAR(255) NULL AFTER `task_code`");
 @mysqli_query($conn, "ALTER TABLE `admin_tasks` ADD COLUMN `specific_member_id` INT NULL AFTER `category`");
 @mysqli_query($conn, "ALTER TABLE `admin_tasks` ADD COLUMN `specifics` TEXT NULL AFTER `description`");
 @mysqli_query($conn, "ALTER TABLE `admin_tasks` ADD COLUMN `expiry_date` DATETIME NULL AFTER `specifics`");
-@mysqli_query($conn, "ALTER TABLE `users` ADD COLUMN `card` VARCHAR(50) NULL");
-@mysqli_query($conn, "ALTER TABLE `users` ADD COLUMN `category` VARCHAR(50) NULL");
 
 // Helper function to generate Task Code (e.g. GD5, GD11, DB1)
 function generateTaskCode($conn, $card, $category, $specificMemberId = null) {
@@ -132,10 +133,10 @@ if ($usersRes) {
 // Seed default data if master table is empty
 $checkEmpty = mysqli_query($conn, "SELECT id FROM admin_tasks");
 if (mysqli_num_rows($checkEmpty) == 0) {
-    $seedSql = "INSERT INTO admin_tasks (task_code, card, category, description, specifics, created_by) VALUES
-    ('DB1', 'Diamond', 'B', 'Recitation of Quran with tajweed and translation', 'Recite at least 1 Juz per week with proper rules', 'admin admin'),
-    ('DB2', 'Diamond', 'B', 'Complete the weekly assigned task and study notes', 'Submit detailed study notes before Friday', 'admin admin'),
-    ('GA1', 'Gold', 'A', 'Daily Namaz attendance and tracking log', 'Mark all 5 daily prayers in system', 'admin admin')";
+    $seedSql = "INSERT INTO admin_tasks (task_code, task_name, card, category, description, specifics, created_by) VALUES
+    ('DB1', 'Surah Anfal ayat 50', 'Diamond', 'B', 'Recitation of Quran with tajweed and translation', 'Recite at least 1 Juz per week with proper rules', 'admin admin'),
+    ('DB2', 'Weekly Study Notes', 'Diamond', 'B', 'Complete the weekly assigned task and study notes', 'Submit detailed study notes before Friday', 'admin admin'),
+    ('GA1', 'Daily Namaz Log', 'Gold', 'A', 'Daily Namaz attendance and tracking log', 'Mark all 5 daily prayers in system', 'admin admin')";
     mysqli_query($conn, $seedSql);
 }
 
@@ -162,16 +163,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $specificMemberId = "NULL";
         }
 
-        $description = mysqli_real_escape_string($conn, $_POST['description'] ?? '');
-        $specifics = mysqli_real_escape_string($conn, $_POST['specifics'] ?? '');
+        $taskName = mysqli_real_escape_string($conn, trim($_POST['task_name'] ?? ''));
+        $description = mysqli_real_escape_string($conn, trim($_POST['description'] ?? ''));
+        $specifics = mysqli_real_escape_string($conn, trim($_POST['specifics'] ?? ''));
+        if (empty($taskName)) $taskName = $description;
+        if (empty($description)) $description = $taskName;
+
         $rawExpiry = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : null;
         $expiryDateSql = $rawExpiry ? "'" . mysqli_real_escape_string($conn, date('Y-m-d H:i:s', strtotime($rawExpiry))) . "'" : "NULL";
         $createdBy = !empty($loggedFirstName) ? htmlspecialchars($loggedFirstName . ' ' . $loggedLastName) : 'admin admin';
 
         $taskCode = generateTaskCode($conn, $rawCard, $rawCategory, $_POST['specific_member_id'] ?? null);
 
-        if (!empty($description)) {
-            $insertSql = "INSERT INTO admin_tasks (task_code, card, category, specific_member_id, description, specifics, expiry_date, created_by) VALUES ('$taskCode', $card, $category, $specificMemberId, '$description', '$specifics', $expiryDateSql, '$createdBy')";
+        if (!empty($taskName) || !empty($description)) {
+            $insertSql = "INSERT INTO admin_tasks (task_code, task_name, card, category, specific_member_id, description, specifics, expiry_date, created_by) VALUES ('$taskCode', '$taskName', $card, $category, $specificMemberId, '$description', '$specifics', $expiryDateSql, '$createdBy')";
             if (mysqli_query($conn, $insertSql)) {
                 $message = "Task [$taskCode] added successfully!";
                 $messageType = "success";
@@ -180,7 +185,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $messageType = "danger";
             }
         } else {
-            $message = "Description cannot be empty.";
+            $message = "Task name or description cannot be empty.";
             $messageType = "warning";
         }
     } 
@@ -203,8 +208,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $specificMemberId = "NULL";
         }
 
-        $description = mysqli_real_escape_string($conn, $_POST['description'] ?? '');
-        $specifics = mysqli_real_escape_string($conn, $_POST['specifics'] ?? '');
+        $taskName = mysqli_real_escape_string($conn, trim($_POST['task_name'] ?? ''));
+        $description = mysqli_real_escape_string($conn, trim($_POST['description'] ?? ''));
+        $specifics = mysqli_real_escape_string($conn, trim($_POST['specifics'] ?? ''));
+        if (empty($taskName)) $taskName = $description;
+        if (empty($description)) $description = $taskName;
+
         $rawExpiry = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : null;
         $expiryDateSql = $rawExpiry ? "'" . mysqli_real_escape_string($conn, date('Y-m-d H:i:s', strtotime($rawExpiry))) . "'" : "NULL";
 
@@ -220,7 +229,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $codeSql = "";
         }
 
-        $updateSql = "UPDATE admin_tasks SET card = $card, category = $category, specific_member_id = $specificMemberId, description = '$description', specifics = '$specifics', expiry_date = $expiryDateSql $codeSql WHERE id = '$taskId'";
+        $updateSql = "UPDATE admin_tasks SET task_name = '$taskName', card = $card, category = $category, specific_member_id = $specificMemberId, description = '$description', specifics = '$specifics', expiry_date = $expiryDateSql $codeSql WHERE id = '$taskId'";
         if (mysqli_query($conn, $updateSql)) {
             $message = "Task updated successfully!";
             $messageType = "success";
@@ -417,6 +426,7 @@ if ($loggedUserId) {
     letter-spacing: 0.6px;
     padding: 14px 16px;
     border-bottom: 1px solid #293647;
+    white-space: nowrap;
 }
 
 .admin-tasks-table td {
@@ -425,6 +435,19 @@ if ($loggedUserId) {
     color: #cbd5e1;
     border-bottom: 1px solid #233042;
     vertical-align: middle;
+    white-space: nowrap;
+}
+
+.admin-tasks-table td.task-name-cell {
+    white-space: normal;
+    min-width: 170px;
+    max-width: 250px;
+}
+
+.admin-tasks-table td.task-desc-cell {
+    white-space: normal;
+    min-width: 200px;
+    max-width: 320px;
 }
 
 .text-created-by {
@@ -645,9 +668,9 @@ if ($loggedUserId) {
                                             <th>ID</th>
                                             <th>CARD</th>
                                             <th>CATEGORY</th>
+                                            <th>TASK NAME</th>
                                             <th>DESCRIPTION</th>
                                             <th>EXPIRY DATE</th>
-                                            <th>CREATED BY</th>
                                             <th>STATUS</th>
                                             <th>ACTIONS</th>
                                         </tr>
@@ -658,6 +681,7 @@ if ($loggedUserId) {
                                                 <?php 
                                                     $tId = $row['id'];
                                                     $taskCode = htmlspecialchars($row['task_code'] ?? ('T' . $tId));
+                                                    $taskDisplayName = htmlspecialchars(!empty($row['task_name']) ? $row['task_name'] : $row['description']);
                                                     $sub = $userSubmissions[$tId] ?? null;
                                                     $subStatus = $sub['status'] ?? 'Not Started';
 
@@ -687,8 +711,11 @@ if ($loggedUserId) {
                                                             <span class="text-muted small">—</span>
                                                         <?php endif; ?>
                                                     </td>
+                                                    <td class="task-name-cell">
+                                                        <span class="font-weight-bold text-white"><?php echo $taskDisplayName; ?></span>
+                                                    </td>
                                                     <td class="task-desc-cell">
-                                                        <div class="font-weight-bold text-white"><?php echo htmlspecialchars($row['description']); ?></div>
+                                                        <div><?php echo htmlspecialchars($row['description']); ?></div>
                                                         <?php if (!empty($row['specifics'])): ?>
                                                             <small class="text-info d-block mt-1"><i class="bi bi-info-circle me-1"></i><?php echo htmlspecialchars($row['specifics']); ?></small>
                                                         <?php endif; ?>
@@ -708,9 +735,6 @@ if ($loggedUserId) {
                                                             <span class="text-muted small">No Expiry</span>
                                                         <?php endif; ?>
                                                     </td>
-
-                                                    <!-- CREATED BY -->
-                                                    <td class="text-created-by"><?php echo htmlspecialchars($row['created_by']); ?></td>
 
                                                     <!-- STATUS Column -->
                                                     <td>
@@ -751,6 +775,7 @@ if ($loggedUserId) {
                                                             <button type="button" class="btn-edit-task me-1" 
                                                                 data-id="<?php echo $row['id']; ?>"
                                                                 data-task-code="<?php echo $taskCode; ?>"
+                                                                data-task-name="<?php echo $taskDisplayName; ?>"
                                                                 data-card="<?php echo htmlspecialchars($row['card'] ?? 'Diamond'); ?>"
                                                                 data-category="<?php echo htmlspecialchars($row['category'] ?? 'B'); ?>"
                                                                 data-member-id="<?php echo intval($row['specific_member_id']); ?>"
@@ -764,6 +789,7 @@ if ($loggedUserId) {
                                                             <button type="button" class="btn-view-submissions"
                                                                 data-id="<?php echo $row['id']; ?>"
                                                                 data-task-code="<?php echo $taskCode; ?>"
+                                                                data-task-name="<?php echo $taskDisplayName; ?>"
                                                                 data-description="<?php echo htmlspecialchars($row['description']); ?>"
                                                                 onclick="openSubmissionsModal(this)">
                                                                 <i class="bi bi-folder-symlink-fill"></i> Submissions (<?php echo $totalSubs; ?>)
@@ -773,6 +799,7 @@ if ($loggedUserId) {
                                                             <button type="button" class="btn-user-submit"
                                                                 data-id="<?php echo $row['id']; ?>"
                                                                 data-task-code="<?php echo $taskCode; ?>"
+                                                                data-task-name="<?php echo $taskDisplayName; ?>"
                                                                 data-description="<?php echo htmlspecialchars($row['description']); ?>"
                                                                 data-specifics="<?php echo htmlspecialchars($row['specifics'] ?? ''); ?>"
                                                                 data-expiry="<?php echo $expiryFormatted; ?>"
@@ -863,8 +890,13 @@ if ($loggedUserId) {
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label text-white small font-weight-bold mb-1">Task Description *</label>
-                            <textarea name="description" class="form-control" rows="2" style="background:#101726; border-color:#293647; color:#fff;" required placeholder="Enter task title / main description..."></textarea>
+                            <label class="form-label text-white small font-weight-bold mb-1">Task Name *</label>
+                            <input type="text" name="task_name" class="form-control" style="background:#101726; border-color:#293647; color:#fff;" required placeholder="e.g. Surah Anfal ayat 50">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label text-white small font-weight-bold mb-1">Task Description / Instructions *</label>
+                            <textarea name="description" class="form-control" rows="2" style="background:#101726; border-color:#293647; color:#fff;" required placeholder="Enter task instructions / main description..."></textarea>
                         </div>
 
                         <div class="mb-3">
@@ -948,7 +980,12 @@ if ($loggedUserId) {
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label text-white small font-weight-bold mb-1">Task Description *</label>
+                            <label class="form-label text-white small font-weight-bold mb-1">Task Name *</label>
+                            <input type="text" name="task_name" id="edit_task_name" class="form-control" style="background:#101726; border-color:#293647; color:#fff;" required placeholder="e.g. Surah Anfal ayat 50">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label text-white small font-weight-bold mb-1">Task Description / Instructions *</label>
                             <textarea name="description" id="edit_description" class="form-control" rows="2" style="background:#101726; border-color:#293647; color:#fff;" required></textarea>
                         </div>
 
@@ -1036,7 +1073,7 @@ if ($loggedUserId) {
                         <input type="hidden" name="task_id" id="user_task_id">
 
                         <div class="p-3 mb-3" style="background:#101726; border-radius:8px; border:1px solid #293647;">
-                            <label class="text-white small font-weight-bold d-block mb-1">TASK DESCRIPTION</label>
+                            <label class="text-white small font-weight-bold d-block mb-1">TASK DETAILS</label>
                             <div id="userTaskDescText" class="text-white font-weight-bold mb-2" style="font-size:0.92rem;"></div>
                             <div id="userTaskSpecificsText" class="text-info small" style="display:none;"></div>
                         </div>
@@ -1097,6 +1134,7 @@ if ($loggedUserId) {
         var card = btn.getAttribute('data-card');
         var category = btn.getAttribute('data-category');
         var memberId = btn.getAttribute('data-member-id');
+        var taskName = btn.getAttribute('data-task-name');
         var description = btn.getAttribute('data-description');
         var specifics = btn.getAttribute('data-specifics');
         var expiry = btn.getAttribute('data-expiry');
@@ -1115,7 +1153,8 @@ if ($loggedUserId) {
             toggleAssignType('edit');
         }
 
-        document.getElementById('edit_description').value = description;
+        document.getElementById('edit_task_name').value = taskName || description || '';
+        document.getElementById('edit_description').value = description || '';
         document.getElementById('edit_specifics').value = specifics || '';
         document.getElementById('edit_expiry_date').value = expiry || '';
 
@@ -1126,6 +1165,7 @@ if ($loggedUserId) {
     function openUserSubmitModal(btn) {
         var id = btn.getAttribute('data-id');
         var taskCode = btn.getAttribute('data-task-code');
+        var taskName = btn.getAttribute('data-task-name');
         var desc = btn.getAttribute('data-description');
         var specs = btn.getAttribute('data-specifics');
         var expiryText = btn.getAttribute('data-expiry');
@@ -1135,7 +1175,10 @@ if ($loggedUserId) {
 
         document.getElementById('user_task_id').value = id;
         
-        var headerHtml = (taskCode ? '<span class="badge bg-primary me-2">' + taskCode + '</span>' : '') + desc;
+        var headerHtml = (taskCode ? '<span class="badge bg-primary me-2">' + taskCode + '</span>' : '') + '<span class="text-info font-weight-bold">' + (taskName || desc) + '</span>';
+        if (desc && desc !== taskName) {
+            headerHtml += '<div class="text-white mt-1 small font-weight-normal">' + desc + '</div>';
+        }
         if (expiryText) {
             headerHtml += '<br><small class="text-muted font-weight-normal mt-1 d-inline-block"><i class="bi bi-clock me-1"></i>Expiry: ' + expiryText + '</small>';
         }
@@ -1173,9 +1216,14 @@ if ($loggedUserId) {
     function openSubmissionsModal(btn) {
         var taskId = btn.getAttribute('data-id');
         var taskCode = btn.getAttribute('data-task-code');
+        var taskName = btn.getAttribute('data-task-name');
         var desc = btn.getAttribute('data-description');
 
-        document.getElementById('adminTaskDescText').innerHTML = (taskCode ? '<strong class="text-info me-2">[' + taskCode + ']</strong>' : '') + 'Task: ' + desc;
+        var titleStr = (taskCode ? '<strong class="text-info me-2">[' + taskCode + ']</strong>' : '') + '<strong>' + (taskName || desc) + '</strong>';
+        if (desc && desc !== taskName) {
+            titleStr += ' — ' + desc;
+        }
+        document.getElementById('adminTaskDescText').innerHTML = titleStr;
         var tableBody = document.getElementById('adminSubmissionsTableBody');
         tableBody.innerHTML = '<tr><td colspan="7" class="text-center py-3">Loading submissions...</td></tr>';
 
@@ -1243,11 +1291,12 @@ if ($loggedUserId) {
             var catVal = categoryFilter.value.toLowerCase();
 
             tableRows.forEach(function (row) {
+                var name = row.querySelector('.task-name-cell') ? row.querySelector('.task-name-cell').textContent.toLowerCase() : '';
                 var desc = row.querySelector('.task-desc-cell') ? row.querySelector('.task-desc-cell').textContent.toLowerCase() : '';
                 var card = row.querySelector('.badge-card') ? row.querySelector('.badge-card').textContent.toLowerCase() : '';
                 var cat = row.querySelector('.badge-category') ? row.querySelector('.badge-category').textContent.toLowerCase() : '';
 
-                var matchesSearch = !searchVal || desc.includes(searchVal);
+                var matchesSearch = !searchVal || desc.includes(searchVal) || name.includes(searchVal);
                 var matchesCard = !cardVal || card.includes(cardVal);
                 var matchesCat = !catVal || cat.includes(catVal);
 
