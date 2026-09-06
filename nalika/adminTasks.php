@@ -743,33 +743,44 @@ if ($loggedUserId) {
 
                             <!-- Filters -->
                             <div class="filter-bar">
-                                <div style="flex: 1; min-width: 200px;">
+                                <div style="flex: 0 1 260px; min-width: 180px;">
                                     <input type="text" id="searchInput" class="form-control" placeholder="Search tasks...">
                                 </div>
-                                <?php if ($canManageTasks): ?>
-                                <div>
-                                    <select id="cardFilter" class="form-select">
-                                        <option value="">All Cards</option>
-                                        <option value="Diamond">Diamond</option>
-                                        <option value="Gold">Gold</option>
-                                        <option value="Silver">Silver</option>
-                                    </select>
+                                <div style="margin-left: auto;" class="d-flex gap-2 flex-wrap align-items-center">
+                                    <div>
+                                        <select id="timeFilter" class="form-select">
+                                            <option value="">All Time</option>
+                                            <option value="daily">Daily</option>
+                                            <option value="weekly">Weekly</option>
+                                            <option value="monthly">Monthly</option>
+                                            <option value="yearly">Yearly</option>
+                                        </select>
+                                    </div>
+                                    <?php if ($canManageTasks): ?>
+                                    <div>
+                                        <select id="cardFilter" class="form-select">
+                                            <option value="">All Cards</option>
+                                            <option value="Diamond">Diamond</option>
+                                            <option value="Gold">Gold</option>
+                                            <option value="Silver">Silver</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <select id="categoryFilter" class="form-select">
+                                            <option value="">All Categories</option>
+                                            <option value="A">A</option>
+                                            <option value="B">B</option>
+                                            <option value="C">C</option>
+                                            <option value="D">D</option>
+                                        </select>
+                                    </div>
+                                    <?php else: ?>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="badge-card"><i class="bi bi-gem me-1"></i><?php echo htmlspecialchars($loggedCard ?: 'Diamond'); ?></span>
+                                        <span class="badge-category"><?php echo htmlspecialchars($loggedCategory ?: 'B'); ?></span>
+                                    </div>
+                                    <?php endif; ?>
                                 </div>
-                                <div>
-                                    <select id="categoryFilter" class="form-select">
-                                        <option value="">All Categories</option>
-                                        <option value="A">A</option>
-                                        <option value="B">B</option>
-                                        <option value="C">C</option>
-                                        <option value="D">D</option>
-                                    </select>
-                                </div>
-                                <?php else: ?>
-                                <div class="d-flex align-items-center gap-2">
-                                    <span class="badge-card"><i class="bi bi-gem me-1"></i><?php echo htmlspecialchars($loggedCard ?: 'Diamond'); ?></span>
-                                    <span class="badge-category"><?php echo htmlspecialchars($loggedCategory ?: 'B'); ?></span>
-                                </div>
-                                <?php endif; ?>
                             </div>
                         </div>
 
@@ -821,9 +832,11 @@ if ($loggedUserId) {
                                                     $expiryRaw = $row['expiry_date'] ?? null;
                                                     $expiryFormatted = !empty($expiryRaw) ? date('d M Y, h:i A', strtotime($expiryRaw)) : '';
                                                     $expiryIso = !empty($expiryRaw) ? date('Y-m-d\TH:i', strtotime($expiryRaw)) : '';
+                                                    $expiryDateOnly = !empty($expiryRaw) ? date('Y-m-d', strtotime($expiryRaw)) : '';
+                                                    $createdDateOnly = !empty($row['created_at']) ? date('Y-m-d', strtotime($row['created_at'])) : '';
                                                     $isExpired = (!empty($expiryRaw) && strtotime('now') > strtotime($expiryRaw));
                                                 ?>
-                                                <tr>
+                                                <tr class="task-row" data-expiry-date="<?php echo $expiryDateOnly; ?>" data-created-date="<?php echo $createdDateOnly; ?>">
                                                     <td><span class="badge bg-primary font-weight-bold" style="font-size:0.82rem; letter-spacing:0.5px;"><?php echo $taskCode; ?></span></td>
                                                     <td>
                                                         <?php if (!empty($row['card'])): ?>
@@ -981,6 +994,9 @@ if ($loggedUserId) {
                                                     </td>
                                                 </tr>
                                             <?php endwhile; ?>
+                                            <tr id="noFilteredTasksRow" style="display:none;">
+                                                <td colspan="8" class="text-center text-muted py-4"><i class="bi bi-funnel me-1"></i>No tasks found matching filter criteria.</td>
+                                            </tr>
                                         <?php else: ?>
                                             <tr>
                                                 <td colspan="8" class="text-center text-muted py-4">No tasks found.</td>
@@ -1700,14 +1716,50 @@ if ($loggedUserId) {
     // Client-side search and filtering
     document.addEventListener('DOMContentLoaded', function () {
         var searchInput = document.getElementById('searchInput');
+        var timeFilter = document.getElementById('timeFilter');
         var cardFilter = document.getElementById('cardFilter');
         var categoryFilter = document.getElementById('categoryFilter');
-        var tableRows = document.querySelectorAll('#tasksTable tbody tr');
+        var tableRows = document.querySelectorAll('#tasksTable tbody tr.task-row');
+        var noFilteredRow = document.getElementById('noFilteredTasksRow');
+
+        function isDateInPeriod(dateStr, period) {
+            if (!dateStr || !period) return false;
+            var parts = dateStr.split('-');
+            if (parts.length < 3) return false;
+            
+            var taskY = parseInt(parts[0], 10);
+            var taskM = parseInt(parts[1], 10) - 1; // 0-indexed month
+            var taskD = parseInt(parts[2], 10);
+            var taskDate = new Date(taskY, taskM, taskD);
+            
+            var now = new Date();
+            var nowY = now.getFullYear();
+            var nowM = now.getMonth();
+            var nowD = now.getDate();
+            
+            if (period === 'daily') {
+                return (taskY === nowY && taskM === nowM && taskD === nowD);
+            } else if (period === 'weekly') {
+                var dayOfWeek = now.getDay();
+                var diffToMon = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+                var startOfWeek = new Date(nowY, nowM, nowD + diffToMon, 0, 0, 0);
+                var endOfWeek = new Date(nowY, nowM, nowD + diffToMon + 6, 23, 59, 59);
+                return (taskDate >= startOfWeek && taskDate <= endOfWeek);
+            } else if (period === 'monthly') {
+                return (taskY === nowY && taskM === nowM);
+            } else if (period === 'yearly') {
+                return (taskY === nowY);
+            }
+            return true;
+        }
 
         function filterTable() {
-            var searchVal = searchInput ? searchInput.value.toLowerCase() : '';
-            var cardVal = cardFilter ? cardFilter.value.toLowerCase() : '';
-            var catVal = categoryFilter ? categoryFilter.value.toLowerCase() : '';
+            var searchVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
+            var timeVal = timeFilter ? timeFilter.value.toLowerCase().trim() : '';
+            var cardVal = cardFilter ? cardFilter.value.toLowerCase().trim() : '';
+            var catVal = categoryFilter ? categoryFilter.value.toLowerCase().trim() : '';
+
+            var visibleCount = 0;
 
             tableRows.forEach(function (row) {
                 var name = row.querySelector('.task-name-cell') ? row.querySelector('.task-name-cell').textContent.toLowerCase() : '';
@@ -1715,19 +1767,29 @@ if ($loggedUserId) {
                 var card = row.querySelector('.badge-card') ? row.querySelector('.badge-card').textContent.toLowerCase() : '';
                 var cat = row.querySelector('.badge-category') ? row.querySelector('.badge-category').textContent.toLowerCase() : '';
 
+                var expDate = row.getAttribute('data-expiry-date') || '';
+                var crtDate = row.getAttribute('data-created-date') || '';
+
                 var matchesSearch = !searchVal || desc.includes(searchVal) || name.includes(searchVal);
                 var matchesCard = !cardVal || card.includes(cardVal);
                 var matchesCat = !catVal || cat.includes(catVal);
+                var matchesTime = !timeVal || isDateInPeriod(expDate, timeVal) || isDateInPeriod(crtDate, timeVal);
 
-                if (matchesSearch && matchesCard && matchesCat) {
+                if (matchesSearch && matchesCard && matchesCat && matchesTime) {
                     row.style.display = '';
+                    visibleCount++;
                 } else {
                     row.style.display = 'none';
                 }
             });
+
+            if (noFilteredRow) {
+                noFilteredRow.style.display = (visibleCount === 0 && tableRows.length > 0) ? '' : 'none';
+            }
         }
 
         if (searchInput) searchInput.addEventListener('keyup', filterTable);
+        if (timeFilter) timeFilter.addEventListener('change', filterTable);
         if (cardFilter) cardFilter.addEventListener('change', filterTable);
         if (categoryFilter) categoryFilter.addEventListener('change', filterTable);
     });
