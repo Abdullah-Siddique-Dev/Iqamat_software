@@ -63,8 +63,6 @@ $permissions = [
             "darsAreasInfo",
             "opportunityJobs",
             "opportunityTechWorkshops",
-            "registeredUsers",
-            "committee",
             "userTeams"
         ],
         "features" => [
@@ -125,10 +123,7 @@ $permissions = [
             "eventResearch",
             "darsAreasInfo",
             "opportunityJobs",
-            "opportunityTechWorkshops",
-            "registeredUsers",
-            "committee",
-            "userTeams"
+            "opportunityTechWorkshops"
         ],
         "features" => []
     ],
@@ -143,21 +138,20 @@ function hasPermission($page)
         return false;
     }
 
-    $role = trim($loggedRole);
+    $role = strtolower(trim($loggedRole));
 
-    $matchedKey = null;
-    foreach ($permissions as $key => $val) {
-        if (strcasecmp($key, $role) === 0) {
-            $matchedKey = $key;
-            break;
-        }
+    // Full access for admin, administrator, adminsir, md, dg
+    if (in_array($role, ['md', 'dg', 'admin', 'administrator', 'adminsir']) || stripos($role, 'admin') !== false) {
+        return true;
     }
 
-    if (!$matchedKey) {
+    $perms = array_change_key_case($permissions, CASE_LOWER);
+
+    if (!isset($perms[$role])) {
         return false;
     }
 
-    $pages = $permissions[$matchedKey]['pages'];
+    $pages = $perms[$role]['pages'];
 
     return in_array("*", $pages) || in_array($page, $pages);
 }
@@ -170,21 +164,20 @@ function hasFeature($feature)
         return false;
     }
 
-    $role = trim($loggedRole);
+    $role = strtolower(trim($loggedRole));
 
-    $matchedKey = null;
-    foreach ($permissions as $key => $val) {
-        if (strcasecmp($key, $role) === 0) {
-            $matchedKey = $key;
-            break;
-        }
+    // Full access for admin, administrator, adminsir, md, dg
+    if (in_array($role, ['md', 'dg', 'admin', 'administrator', 'adminsir']) || stripos($role, 'admin') !== false) {
+        return true;
     }
 
-    if (!$matchedKey) {
+    $perms = array_change_key_case($permissions, CASE_LOWER);
+
+    if (!isset($perms[$role])) {
         return false;
     }
 
-    $features = $permissions[$matchedKey]['features'];
+    $features = $perms[$role]['features'];
 
     return in_array("*", $features) || in_array($feature, $features);
 }

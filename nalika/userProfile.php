@@ -27,12 +27,23 @@ $loggedId   = (int)$loggedUser['id'];
 
 // Which profile to view
 $profileId    = isset($_GET['id']) ? (int)$_GET['id'] : $loggedId;
-$canViewOther = in_array($loggedRole, ['DG','MD','representative','committee']);
+$canViewOther = in_array(strtolower($loggedRole), ['dg','md','admin','administrator','adminsir','representative','committee','ithead','researchhead'])
+                || stripos($loggedRole, 'admin') !== false;
 if ($profileId !== $loggedId && !$canViewOther) { header("Location: userProfile.php"); exit(); }
+
+// Auto-check columns for card & category
+$colCard = mysqli_query($conn, "SHOW COLUMNS FROM users LIKE 'card'");
+if (!$colCard || mysqli_num_rows($colCard) == 0) {
+    mysqli_query($conn, "ALTER TABLE users ADD COLUMN card VARCHAR(50) DEFAULT 'Diamond' AFTER area");
+}
+$colCategory = mysqli_query($conn, "SHOW COLUMNS FROM users LIKE 'category'");
+if (!$colCategory || mysqli_num_rows($colCategory) == 0) {
+    mysqli_query($conn, "ALTER TABLE users ADD COLUMN category VARCHAR(50) DEFAULT 'B' AFTER card");
+}
 
 // Fetch profile user
 $stmt2 = $conn->prepare("
-    SELECT id, username, role, area, firstName, lastName, email, phone, cnic, gender, age, image, date_of_joining
+    SELECT id, username, role, area, firstName, lastName, email, phone, cnic, gender, age, image, date_of_joining, card, category
     FROM users WHERE id = ? LIMIT 1
 ");
 $stmt2->bind_param("i", $profileId);
@@ -640,6 +651,13 @@ $totalTeamsCount = count($supervisedAreas) + count($userTeams);
 </div> -->
 
 <!-- ══ HERO BANNER ══ -->
+<?php if (!$isOwnProfile): ?>
+<div class="container-fluid pt-3 px-4">
+    <a href="registeredUsers.php" class="btn btn-sm btn-outline-secondary text-white" style="background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.2); border-radius:6px; font-weight:500;">
+        <i class="bi bi-arrow-left me-1"></i> Back to User Management
+    </a>
+</div>
+<?php endif; ?>
 <div class="profile-hero-wrap">
     <div class="profile-hero-bg"></div>
     <div class="profile-hero-inner">
@@ -658,10 +676,17 @@ $totalTeamsCount = count($supervisedAreas) + count($userTeams);
             </div>
             <div class="ph-identity" style="padding-bottom:14px;">
                 <div class="ph-name"><?= htmlspecialchars($fullName) ?></div>
-                <div class="ph-role-chip"
-                     style="background:<?= $rc['bg'] ?>;border:1px solid <?= $rc['border'] ?>;color:<?= $rc['color'] ?>;">
-                    <i class="bi bi-shield-fill-check" style="font-size:.75rem;"></i>
-                    <?= htmlspecialchars($roleLabel) ?>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <div class="ph-role-chip"
+                         style="background:<?= $rc['bg'] ?>;border:1px solid <?= $rc['border'] ?>;color:<?= $rc['color'] ?>;">
+                        <i class="bi bi-shield-fill-check" style="font-size:.75rem;"></i>
+                        <?= htmlspecialchars($roleLabel) ?>
+                    </div>
+                    <div class="ph-role-chip"
+                         style="background:rgba(13,110,253,.18);border:1px solid rgba(13,110,253,.35);color:#60a5fa;">
+                        <i class="bi bi-credit-card-2-front-fill" style="font-size:.75rem;"></i>
+                        <?= htmlspecialchars($profileUser['card'] ?? 'Diamond') ?> | <?= htmlspecialchars($profileUser['category'] ?? 'B') ?>
+                    </div>
                 </div>
             </div>
         </div>
@@ -848,6 +873,17 @@ $totalTeamsCount = count($supervisedAreas) + count($userTeams);
                 <div class="about-row">
                     <div class="about-row-icon"><i class="bi bi-person-fill"></i></div>
                     <div><span class="about-lbl">Full Name</span><span class="about-val"><?= htmlspecialchars($fullName ?: '—') ?></span></div>
+                </div>
+                <div class="about-row">
+                    <div class="about-row-icon"><i class="bi bi-award-fill"></i></div>
+                    <div>
+                        <span class="about-lbl">Card &amp; Category</span>
+                        <span class="about-val">
+                            <span class="badge" style="background:rgba(13,110,253,0.2);color:#60a5fa;border:1px solid rgba(13,110,253,0.4);font-size:0.78rem;"><?= htmlspecialchars($profileUser['card'] ?? 'Diamond') ?></span>
+                            <span style="opacity:0.5;margin:0 4px;">|</span>
+                            <span class="badge" style="background:rgba(168,85,247,0.2);color:#c084fc;border:1px solid rgba(168,85,247,0.4);font-size:0.78rem;">Category <?= htmlspecialchars($profileUser['category'] ?? 'B') ?></span>
+                        </span>
+                    </div>
                 </div>
                 <div class="about-row">
                     <div class="about-row-icon"><i class="bi bi-envelope-fill"></i></div>

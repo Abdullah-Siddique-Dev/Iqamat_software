@@ -16,6 +16,14 @@ $activation_token = bin2hex(random_bytes(32));
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
+    // Auto-fix phone column if still INT (prevents 2147483647 truncation)
+    $phoneColRes = mysqli_query($conn, "SHOW COLUMNS FROM users LIKE 'phone'");
+    if ($phoneColRes && $pRow = mysqli_fetch_assoc($phoneColRes)) {
+        if (stripos($pRow['Type'], 'int') !== false) {
+            mysqli_query($conn, "ALTER TABLE users MODIFY phone VARCHAR(30) NOT NULL");
+        }
+    }
+
     $firstName        = trim($_POST['firstName']);
     $lastName         = trim($_POST['lastName']);
     $baseUsername     = ucfirst($firstName) . ucfirst($lastName);

@@ -5,6 +5,24 @@ if (!isset($_SESSION['user'])) {
     header("Location: ../index.php");
     exit();
 }
+
+// Auto-fix columns if needed
+$phoneColRes = mysqli_query($conn, "SHOW COLUMNS FROM users LIKE 'phone'");
+if ($phoneColRes && $pRow = mysqli_fetch_assoc($phoneColRes)) {
+    if (stripos($pRow['Type'], 'int') !== false) {
+        mysqli_query($conn, "ALTER TABLE users MODIFY phone VARCHAR(30) NOT NULL");
+    }
+}
+$colCard = mysqli_query($conn, "SHOW COLUMNS FROM users LIKE 'card'");
+if (!$colCard || mysqli_num_rows($colCard) == 0) {
+    mysqli_query($conn, "ALTER TABLE users ADD COLUMN card VARCHAR(50) DEFAULT 'Diamond' AFTER area");
+    mysqli_query($conn, "UPDATE users SET card = 'Diamond' WHERE card IS NULL OR card = ''");
+}
+$colCategory = mysqli_query($conn, "SHOW COLUMNS FROM users LIKE 'category'");
+if (!$colCategory || mysqli_num_rows($colCategory) == 0) {
+    mysqli_query($conn, "ALTER TABLE users ADD COLUMN category VARCHAR(50) DEFAULT 'B' AFTER card");
+    mysqli_query($conn, "UPDATE users SET category = 'B' WHERE category IS NULL OR category = ''");
+}
 ?>
 
 <!doctype html>
@@ -21,6 +39,28 @@ include "header.php";
 
     th[onclick]:hover {
         background-color: #f1f1f1;
+    }
+
+    .badge-card {
+        background: rgba(13, 110, 253, 0.15);
+        color: #60a5fa;
+        border: 1px solid rgba(13, 110, 253, 0.3);
+        font-size: 0.8rem;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 6px;
+        display: inline-block;
+    }
+
+    .badge-category {
+        background: rgba(168, 85, 247, 0.15);
+        color: #c084fc;
+        border: 1px solid rgba(168, 85, 247, 0.3);
+        font-size: 0.8rem;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 6px;
+        display: inline-block;
     }
 </style>
 
@@ -66,15 +106,13 @@ include "header.php";
                                         <tr>
                                             <th>#</th>
                                             <th onclick="sortTable('fullName')" style="cursor:pointer;">Full Name</th>
-                                            <th onclick="sortTable('username')" style="cursor:pointer;">Username</th>
-                                            <th onclick="sortTable('age')" style="cursor:pointer;">Age</th>
-                                            <th onclick="sortTable('gender')" style="cursor:pointer;">Gender</th>
+                                            <th onclick="sortTable('cardCategory')" style="cursor:pointer;">Card &amp; Category</th>
                                             <th onclick="sortTable('email')" style="cursor:pointer;">Email</th>
                                             <th onclick="sortTable('phone')" style="cursor:pointer;">Phone</th>
                                             <th onclick="sortTable('area')" style="cursor:pointer;">Dars Area</th>
                                             <th onclick="sortTable('status')" style="cursor:pointer;">Status</th>
                                             <th onclick="sortTable('role')" style="cursor:pointer;">Role</th>
-                                            <th style="width:180px;">Actions</th>
+                                            <th style="min-width:210px; width:210px;">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody id="userTableBody">
@@ -119,17 +157,24 @@ include "footer.php"; ?>
                             </div>
                         </div>
 
-                        <div class="form-group mb-3">
-                            <label>Age</label>
-                            <input type="number" name="age" id="editAge" class="form-control">
-                        </div>
-
-                        <div class="form-group mb-3">
-                            <label>Gender</label>
-                            <select name="gender" id="editGender" class="form-control">
-                                <option value="Male">Male</option>
-                                <option value="Female">Female</option>
-                            </select>
+                        <div class="row">
+                            <div class="col-sm-6 mb-3 text-start">
+                                <label class="form-label" for="editCard">Card</label>
+                                <select name="card" id="editCard" class="form-control" required>
+                                    <option value="Diamond">Diamond</option>
+                                    <option value="Gold">Gold</option>
+                                    <option value="Silver">Silver</option>
+                                </select>
+                            </div>
+                            <div class="col-sm-6 mb-3 text-start">
+                                <label class="form-label" for="editCategory">Category</label>
+                                <select name="category" id="editCategory" class="form-control" required>
+                                    <option value="A">A</option>
+                                    <option value="B">B</option>
+                                    <option value="C">C</option>
+                                    <option value="D">D</option>
+                                </select>
+                            </div>
                         </div>
 
                         <div class="form-group mb-3">
@@ -180,6 +225,18 @@ include "footer.php"; ?>
                                 <option value="itHead">IT Head</option>
                                 <option value="researchHead">Research Head</option>
                                 <option value="representative">Representative</option>
+                                <option value="admin">Admin</option>
+                                <option value="MD">MD</option>
+                                <option value="DG">DG</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group mb-3">
+                            <label>Status</label>
+                            <select name="status" id="editStatus" class="form-control">
+                                <option value="Active">Active</option>
+                                <option value="Inactive">Inactive</option>
+                                <option value="Pending">Pending</option>
                             </select>
                         </div>
 
@@ -187,7 +244,7 @@ include "footer.php"; ?>
                 </div>
 
                 <div class="modal-footer">
-                    <button class="btn btn-primary" onclick="updateUser()">Update</button>
+                    <button class="btn btn-primary" onclick="updateUser()"><i class="bi bi-check-lg me-1"></i>Save Changes</button>
                     <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 </div>
 
@@ -221,6 +278,12 @@ include "footer.php"; ?>
         </div>
     </div>
 
+    <!-- Script dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/simplebar@6.2.7/dist/simplebar.min.js"></script>
+    <script src="js/main.js"></script>
+
     <script>
         let currentSort = {
             column: null,
@@ -251,12 +314,8 @@ include "footer.php"; ?>
             switch (column) {
                 case 'fullName':
                     return `${user.firstName} ${user.lastName}`.toLowerCase();
-                case 'username':
-                    return user.username.toLowerCase();
-                case 'age':
-                    return parseInt(user.age) || 0;
-                case 'gender':
-                    return (user.gender || '').toLowerCase();
+                case 'cardCategory':
+                    return `${user.card || ''} ${user.category || ''}`.toLowerCase();
                 case 'email':
                     return user.email.toLowerCase();
                 case 'phone':
@@ -282,8 +341,9 @@ include "footer.php"; ?>
                 const lastName  = (user.lastName  || '').toLowerCase();
                 const email     = (user.email     || '').toLowerCase();
                 const area      = (user.area      || '').toLowerCase();
-                return fullName.startsWith(query) || firstName.startsWith(query) ||
-                       lastName.startsWith(query) || email.startsWith(query) || area.includes(query);
+                const cardCat   = ((user.card || '') + ' ' + (user.category || '')).toLowerCase();
+                return fullName.includes(query) || firstName.includes(query) ||
+                       lastName.includes(query) || email.includes(query) || area.includes(query) || cardCat.includes(query);
             });
 
             renderUsers(filtered);
@@ -302,13 +362,11 @@ include "footer.php"; ?>
         // Open modal Delete confirmation
         function deleteUser(id) {
             selectedUserId = id;
-
-            // Optional: show username in modal
-            const row = event.target.closest("tr");
-            const username = row.children[1].innerText;
+            const user = (typeof users !== 'undefined') ? users.find(u => u.id == id) : null;
+            const displayName = user ? `${user.firstName} ${user.lastName}` : `User #${id}`;
 
             document.getElementById("deleteMessage").innerText =
-                `Are you sure you want to delete ${username}?`;
+                `Are you sure you want to delete ${displayName}?`;
 
             deleteModal.show();
         }
@@ -337,6 +395,10 @@ include "footer.php"; ?>
         let users = []; // GLOBAL
 
         const roleLabels = {
+            admin: "Admin",
+            administrator: "Administrator",
+            MD: "MD",
+            DG: "DG",
             member: "Member",
             trainee: "Trainee",
             committee: "Committee Member",
@@ -356,7 +418,7 @@ include "footer.php"; ?>
         }
 
         function viewUser(id) {
-            alert("View user ID: " + id);
+            window.location.href = `userProfile.php?id=${id}`;
         }
 
         let editModal;
@@ -368,16 +430,18 @@ include "footer.php"; ?>
         function editUser(id) {
             const user = users.find(u => u.id == id);
             if (!user) return;
-
             document.getElementById('editUserId').value = user.id;
             document.getElementById('edit-firstName').value = user.firstName || '';
             document.getElementById('edit-lastName').value = user.lastName || '';
-            document.getElementById('editAge').value = user.age || '';
-            document.getElementById('editGender').value = user.gender || 'Male';
+            document.getElementById('editCard').value = user.card || 'Diamond';
+            document.getElementById('editCategory').value = user.category || 'B';
             document.getElementById('editEmail').value = user.email || '';
-            document.getElementById('editPhone').value = user.phone || '';
+            document.getElementById('editPhone').value = (user.phone == '2147483647') ? '' : (user.phone || '');
             document.getElementById('editArea').value = user.area || '';
-            document.getElementById('editRole').value = user.role || user.roles || '';
+            document.getElementById('editRole').value = user.role || user.roles || 'member';
+            if (document.getElementById('editStatus')) {
+                document.getElementById('editStatus').value = user.status || 'Active';
+            }
 
             // Show the modal
             editModal.show();
@@ -421,23 +485,18 @@ include "footer.php"; ?>
             tableBody.innerHTML = "";
 
             if (!list || list.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="11" class="text-center">No users found</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="9" class="text-center">No users found</td></tr>`;
                 return;
             }
 
             list.forEach((user, index) => {
-                const canEditUser   = <?php echo hasFeature("editUser")   ? 'true' : 'false'; ?>;
-                const canDeleteUser = <?php echo hasFeature("deleteUser") ? 'true' : 'false'; ?>;
-
                 tableBody.innerHTML += `
                 <tr>
                     <td>${index + 1}</td>
                     <td>${user.firstName} ${user.lastName}</td>
-                    <td>${user.username}</td>
-                    <td>${user.age ?? '-'}</td>
-                    <td>${user.gender ?? '-'}</td>
+                    <td><span class="badge-card">${user.card || 'Diamond'}</span> <span style="opacity:0.5; margin:0 3px;">|</span> <span class="badge-category">${user.category || 'B'}</span></td>
                     <td>${user.email}</td>
-                    <td>${user.phone ?? '-'}</td>
+                    <td>${user.phone == '2147483647' ? '<span class="text-warning" title="Number truncated by old INT limit. Click Edit to enter real number.">2147483647 <i class="bi bi-exclamation-triangle-fill text-warning ms-1" style="font-size:0.75rem;"></i></span>' : (user.phone || '-')}</td>
                     <td>${user.area ?? '-'}</td>
                     <td>
                         <span class="badge ${user.status === 'Active' ? 'badge-success' : 'badge-secondary'}">
@@ -446,9 +505,17 @@ include "footer.php"; ?>
                     </td>
                     <td>${roleLabels[user.role] ?? roleLabels[user.roles] ?? user.role ?? '-'}</td>
                     <td>
-                        <button class="btn btn-sm btn-info" onclick="viewUser(${user.id})">View</button>
-                        ${canEditUser   ? `<button class="btn btn-sm btn-primary" onclick="editUser(${user.id})">Edit</button>`   : ''}
-                        ${canDeleteUser ? `<button class="btn btn-sm btn-danger"  onclick="deleteUser(${user.id})">Delete</button>` : ''}
+                        <div class="d-flex gap-1 align-items-center flex-nowrap">
+                            <a href="userProfile.php?id=${user.id}" class="btn btn-sm btn-info text-white" style="font-size:0.75rem; padding:4px 9px; font-weight:600;" title="View Profile">
+                                <i class="bi bi-eye"></i> View
+                            </a>
+                            <button class="btn btn-sm btn-primary" onclick="editUser(${user.id})" style="font-size:0.75rem; padding:4px 9px; font-weight:600;" title="Edit User">
+                                <i class="bi bi-pencil-square"></i> Edit
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteUser(${user.id})" style="font-size:0.75rem; padding:4px 9px; font-weight:600;" title="Delete User">
+                                <i class="bi bi-trash"></i> Delete
+                            </button>
+                        </div>
                     </td>
                 </tr>`;
             });
