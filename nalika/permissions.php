@@ -66,7 +66,9 @@ $permissions = [
             "newUsers",
             "registeredUsers",
             "committee",
-            "userTeams"
+            "userTeams",
+            "reports",
+            "myReport"
         ],
         "features" => [
             "addDars", "editDars",
@@ -106,7 +108,8 @@ $permissions = [
             "opportunityTechWorkshops",
             "registeredUsers",
             "committee",
-            "userTeams"
+            "userTeams",
+            "myReport"
         ],
         "features" => []
     ],
@@ -126,7 +129,8 @@ $permissions = [
             "eventResearch",
             "darsAreasInfo",
             "opportunityJobs",
-            "opportunityTechWorkshops"
+            "opportunityTechWorkshops",
+            "myReport"
         ],
         "features" => []
     ],

@@ -1,3 +1,8 @@
+/* Hide duplicate/template logo-pro everywhere */
+.logo-pro {
+    display: none !important;
+}
+
 /* Normal desktop :992px. */
 @media (min-width: 992px) and (max-width: 1169px) {
 .left-sidebar-pro{

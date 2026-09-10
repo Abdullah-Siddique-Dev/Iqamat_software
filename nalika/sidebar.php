@@ -68,6 +68,14 @@
                     </a>
                 </li>
                 <?php endif; ?>
+                <?php if(hasPermission("myReport")): ?>
+                <li>
+                    <a href="myReport.php">
+                        <i class="bi big-icon bi-file-earmark-person icon-wrap"></i>
+                        <span class="mini-click-non">My Report</span>
+                    </a>
+                </li>
+                <?php endif; ?>
                 <?php if(hasPermission("pdDarsAttendance")): ?>
                 <li>
                     <a href="upcomingEvents.php">
@@ -159,6 +167,16 @@
                         <li><a href="registeredUsers.php"><span class="mini-sub-pro"><i class="bi bi-person-badge"></i>  Registered Users</span></a></li>
                         <li><a href="committee.php"><span class="mini-sub-pro"><i class="bi bi-person-workspace"></i>  Committee</span></a></li>
                         <li><a href="userTeams.php"><span class="mini-sub-pro"><i class="bi bi-people"></i>  Teams</span></a></li>
+                        <?php 
+                        $userRoleLower = strtolower(trim($loggedRole ?? ''));
+                        $canSeeAllReports = hasPermission("reports") && in_array($userRoleLower, ['admin', 'administrator', 'adminsir', 'md', 'dg', 'committee']);
+                        ?>
+                        <?php if($canSeeAllReports): ?>
+                        <li><a href="reports.php"><span class="mini-sub-pro"><i class="bi bi-file-earmark-bar-graph"></i>  Reports</span></a></li>
+                        <?php endif; ?>
+                        <?php if(hasPermission("myReport")): ?>
+                        <li><a href="myReport.php"><span class="mini-sub-pro"><i class="bi bi-file-earmark-person"></i>  My Report</span></a></li>
+                        <?php endif; ?>
                     </ul>
                 </li>
                 <?php endif; ?>
