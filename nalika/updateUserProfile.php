@@ -28,6 +28,14 @@ if (empty($firstName) || empty($lastName)) {
     echo "First and Last name are required."; exit();
 }
 
+if (preg_match('/[0-9]/', $firstName) || preg_match('/[0-9]/', $lastName)) {
+    echo "Error: Only letters allowed for Name. No digits permitted."; exit();
+}
+
+if (!empty($phone) && preg_match('/[a-zA-Z]/', $phone)) {
+    echo "Error: Only numbers allowed for Phone. No letters permitted."; exit();
+}
+
 $stmt = $conn->prepare("
     UPDATE users
     SET firstName=?, lastName=?, email=?, phone=?, age=?, gender=?, cnic=?

@@ -58,7 +58,7 @@
                 <li>
                     <a href="adminTasks.php">
                         <i class="bi big-icon bi-card-checklist icon-wrap"></i>
-                        <span class="mini-click-non">Card System</span>
+                        <span class="mini-click-non">Manage Tasks</span>
                     </a>
                 </li>
                 <?php endif; ?>
@@ -137,14 +137,19 @@
                     </ul>
                 </li>
                 <?php endif; ?>
-                <?php if(hasPermission("registeredUsers") || hasPermission("committee") || hasPermission("userTeams")): ?>
+                <?php 
+                $isMemberSide = in_array(strtolower(trim($loggedRole ?? '')), ['member', 'trainee']) && stripos($loggedUsername ?? '', 'admin') === false;
+                ?>
+                <?php if(!$isMemberSide || hasPermission("registeredUsers") || hasPermission("committee") || hasPermission("userTeams")): ?>
                 <li>
                     <a class="has-arrow" href="#" aria-expanded="false">
                         <i class="bi bi-people-fill big-icon icon-wrap"></i>
                         <span class="mini-click-non">Users</span>
                     </a>
                     <ul class="submenu-angle" aria-expanded="false">
+                        <?php if(!$isMemberSide): ?>
                         <li><a href="newUsers.php"><span class="mini-sub-pro"><i class="bi bi-person-plus"></i>  New Users</span></a></li>
+                        <?php endif; ?>
                         <li><a href="registeredUsers.php"><span class="mini-sub-pro"><i class="bi bi-person-badge"></i>  Registered Users</span></a></li>
                         <li><a href="committee.php"><span class="mini-sub-pro"><i class="bi bi-person-workspace"></i>  Committee</span></a></li>
                         <li><a href="userTeams.php"><span class="mini-sub-pro"><i class="bi bi-people"></i>  Teams</span></a></li>

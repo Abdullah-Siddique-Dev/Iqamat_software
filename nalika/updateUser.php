@@ -1,6 +1,17 @@
 <?php
 include "connection.php";
 
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+if (!isset($_SESSION['user'])) {
+    die("<div class='modal-body'><p>❌ Unauthorized</p></div>");
+}
+$userRole = strtolower(trim($_SESSION['user']['role'] ?? ''));
+if (in_array($userRole, ['member', 'trainee'])) {
+    die("<div class='modal-body'><p>❌ Forbidden: Members cannot edit users</p></div>");
+}
+
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // Auto-fix phone column if still INT (prevents 2147483647 truncation)
     $phoneColRes = mysqli_query($conn, "SHOW COLUMNS FROM users LIKE 'phone'");
@@ -23,14 +34,57 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
 
     $userId = $_POST['id']; // the user being edited
-    $firstName = $_POST['firstName'];
-    $lastName = $_POST['lastName'];
-    $email = $_POST['email'];
-    $phone = $_POST['phone'];
+    $firstName = trim($_POST['firstName'] ?? '');
+    $lastName = trim($_POST['lastName'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $phone = trim($_POST['phone'] ?? '');
     $card = $_POST['card'] ?? 'Diamond';
     $category = $_POST['category'] ?? 'B';
-    $role = $_POST['type'];
+    $role = $_POST['type'] ?? 'member';
     $area = $_POST['area'] ?? '';
+
+    // Validation: Name letters only, phone digits only
+    if (preg_match('/[0-9]/', $firstName) || preg_match('/[0-9]/', $lastName)) {
+        echo '
+        <div class="modal fade" id="successModal" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title text-danger">Validation Error</h5>
+                    </div>
+                    <div class="modal-body">
+                        <p>❌ Only letters allowed for Name. No digits permitted.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">OK</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        ';
+        exit;
+    }
+
+    if (preg_match('/[a-zA-Z]/', $phone)) {
+        echo '
+        <div class="modal fade" id="successModal" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title text-danger">Validation Error</h5>
+                    </div>
+                    <div class="modal-body">
+                        <p>❌ Only numbers allowed for Phone. No letters permitted.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">OK</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        ';
+        exit;
+    }
 
     // -------------------------------
     // 1️⃣ Generate base username

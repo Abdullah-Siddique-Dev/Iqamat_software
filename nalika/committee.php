@@ -368,7 +368,7 @@ if (!isset($_SESSION['user'])) {
                     <td><small class="text">${u.username}</small></td>
                     <td>${u.email}</td>
                     <td>${u.phone ?? '—'}</td>
-                    <td>${u.areaName ?? u.area ?? '—'}</td>
+                    <td>${(u.areaName && !/^\d+$/.test(u.areaName)) ? u.areaName : ((u.area && !/^\d+$/.test(u.area)) ? u.area : (u.areaName || u.area || '—'))}</td>
                     <td><span class="role-pill ${pillCls}">${lbl}</span></td>
 <td>
     ${canEditCommittee ? `

@@ -1,6 +1,19 @@
 <?php
 require_once "connection.php";
 
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+if (!isset($_SESSION['user'])) {
+    echo "Unauthorized";
+    exit;
+}
+$userRole = strtolower(trim($_SESSION['user']['role'] ?? ''));
+if (in_array($userRole, ['member', 'trainee'])) {
+    echo "Forbidden: Members cannot delete users";
+    exit;
+}
+
 $id = $_GET['id'] ?? 0;
 
 // امنیت check

@@ -640,10 +640,85 @@
 
     let selectedFile = null;
 
+    // Real-time input filters (letters-only & phone-only)
+    function setupInputFilters() {
+      function showNotice(el, msg) {
+        let parent = el.parentElement;
+        let existing = parent.querySelector('.input-filter-notice');
+        if (existing) {
+          existing.textContent = msg;
+          existing.style.display = 'block';
+          clearTimeout(existing._t);
+          existing._t = setTimeout(() => existing.style.display = 'none', 2500);
+          return;
+        }
+        let note = document.createElement('small');
+        note.className = 'input-filter-notice text-danger d-block mt-1';
+        note.style.fontSize = '0.75rem';
+        note.style.fontWeight = '500';
+        note.textContent = msg;
+        parent.appendChild(note);
+        note._t = setTimeout(() => note.style.display = 'none', 2500);
+      }
+
+      ['reg-firstName', 'reg-lastName'].forEach(id => {
+        const inp = document.getElementById(id);
+        if (!inp) return;
+        inp.addEventListener('keypress', e => {
+          if (/[0-9]/.test(e.key)) {
+            e.preventDefault();
+            showNotice(inp, 'Only letters allowed. No digits permitted.');
+          }
+        });
+        inp.addEventListener('input', () => {
+          if (/[0-9]/.test(inp.value)) {
+            inp.value = inp.value.replace(/[0-9]/g, '');
+            showNotice(inp, 'Only letters allowed. No digits permitted.');
+          }
+        });
+      });
+
+      const phoneInp = document.querySelector('input[name="phone"]');
+      if (phoneInp) {
+        phoneInp.addEventListener('keypress', e => {
+          if (!/[0-9+\-\s]/.test(e.key) && e.key.length === 1) {
+            e.preventDefault();
+            showNotice(phoneInp, 'Only numbers allowed. No letters permitted.');
+          }
+        });
+        phoneInp.addEventListener('input', () => {
+          if (/[a-zA-Z]/.test(phoneInp.value)) {
+            phoneInp.value = phoneInp.value.replace(/[a-zA-Z]/g, '');
+            showNotice(phoneInp, 'Only numbers allowed. No letters permitted.');
+          }
+        });
+      }
+    }
+    setupInputFilters();
+
     // Validate form before opening modal
     openModalBtn.addEventListener("click", function() {
       if (!registerForm.checkValidity()) {
         registerForm.reportValidity();
+        return;
+      }
+      const fn = document.getElementById("reg-firstName").value.trim();
+      const ln = document.getElementById("reg-lastName").value.trim();
+      const ph = document.querySelector('input[name="phone"]').value.trim();
+
+      if (/[0-9]/.test(fn)) {
+        alert("First Name: Only letters allowed. No digits permitted.");
+        document.getElementById("reg-firstName").focus();
+        return;
+      }
+      if (/[0-9]/.test(ln)) {
+        alert("Last Name: Only letters allowed. No digits permitted.");
+        document.getElementById("reg-lastName").focus();
+        return;
+      }
+      if (/[a-zA-Z]/.test(ph)) {
+        alert("Phone: Only numbers allowed. No letters permitted.");
+        document.querySelector('input[name="phone"]').focus();
         return;
       }
       photoModal.classList.add("active");

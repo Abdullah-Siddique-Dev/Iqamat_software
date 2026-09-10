@@ -1,10 +1,9 @@
 <?php
 include "connection.php";
-session_start();
-if (!isset($_SESSION['user'])) {
-    header("Location: ../index.php");
-    exit();
-}
+include_once "auth.php";
+require_once "permissions.php";
+
+$isMemberSide = in_array(strtolower(trim($loggedRole ?? '')), ['member', 'trainee']) && stripos($loggedUsername ?? '', 'admin') === false;
 
 // Auto-fix columns if needed
 $phoneColRes = mysqli_query($conn, "SHOW COLUMNS FROM users LIKE 'phone'");
@@ -112,7 +111,9 @@ include "header.php";
                                             <th onclick="sortTable('area')" style="cursor:pointer;">Dars Area</th>
                                             <th onclick="sortTable('status')" style="cursor:pointer;">Status</th>
                                             <th onclick="sortTable('role')" style="cursor:pointer;">Role</th>
+                                            <?php if (!$isMemberSide): ?>
                                             <th style="min-width:210px; width:210px;">Actions</th>
+                                            <?php endif; ?>
                                         </tr>
                                     </thead>
                                     <tbody id="userTableBody">
@@ -449,6 +450,26 @@ include "footer.php"; ?>
 
         function updateUser() {
             const form = document.getElementById('editUserForm');
+            const fn = (document.getElementById('edit-firstName').value || '').trim();
+            const ln = (document.getElementById('edit-lastName').value || '').trim();
+            const ph = (document.getElementById('editPhone').value || '').trim();
+
+            if (/[0-9]/.test(fn)) {
+                alert("First Name: Only letters allowed. No digits permitted.");
+                document.getElementById('edit-firstName').focus();
+                return;
+            }
+            if (/[0-9]/.test(ln)) {
+                alert("Last Name: Only letters allowed. No digits permitted.");
+                document.getElementById('edit-lastName').focus();
+                return;
+            }
+            if (/[a-zA-Z]/.test(ph)) {
+                alert("Phone: Only numbers allowed. No letters permitted.");
+                document.getElementById('editPhone').focus();
+                return;
+            }
+
             const data = new FormData(form);
 
             fetch('updateUser.php', {
@@ -480,16 +501,35 @@ include "footer.php"; ?>
 
         loadUsers();
 
+        const isMemberSide = <?php echo $isMemberSide ? 'true' : 'false'; ?>;
+
         function renderUsers(list) {
             const tableBody = document.getElementById("userTableBody");
             tableBody.innerHTML = "";
 
+            const totalCols = isMemberSide ? 8 : 9;
+
             if (!list || list.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="9" class="text-center">No users found</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="${totalCols}" class="text-center">No users found</td></tr>`;
                 return;
             }
 
             list.forEach((user, index) => {
+                const actionCell = isMemberSide ? '' : `
+                    <td>
+                        <div class="d-flex gap-1 align-items-center flex-nowrap">
+                            <a href="userProfile.php?id=${user.id}" class="btn btn-sm btn-info text-white" style="font-size:0.75rem; padding:4px 9px; font-weight:600;" title="View Profile">
+                                <i class="bi bi-eye"></i> View
+                            </a>
+                            <button class="btn btn-sm btn-primary" onclick="editUser(${user.id})" style="font-size:0.75rem; padding:4px 9px; font-weight:600;" title="Edit User">
+                                <i class="bi bi-pencil-square"></i> Edit
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteUser(${user.id})" style="font-size:0.75rem; padding:4px 9px; font-weight:600;" title="Delete User">
+                                <i class="bi bi-trash"></i> Delete
+                            </button>
+                        </div>
+                    </td>`;
+
                 tableBody.innerHTML += `
                 <tr>
                     <td>${index + 1}</td>
@@ -504,19 +544,7 @@ include "footer.php"; ?>
                         </span>
                     </td>
                     <td>${roleLabels[user.role] ?? roleLabels[user.roles] ?? user.role ?? '-'}</td>
-                    <td>
-                        <div class="d-flex gap-1 align-items-center flex-nowrap">
-                            <a href="userProfile.php?id=${user.id}" class="btn btn-sm btn-info text-white" style="font-size:0.75rem; padding:4px 9px; font-weight:600;" title="View Profile">
-                                <i class="bi bi-eye"></i> View
-                            </a>
-                            <button class="btn btn-sm btn-primary" onclick="editUser(${user.id})" style="font-size:0.75rem; padding:4px 9px; font-weight:600;" title="Edit User">
-                                <i class="bi bi-pencil-square"></i> Edit
-                            </button>
-                            <button class="btn btn-sm btn-danger" onclick="deleteUser(${user.id})" style="font-size:0.75rem; padding:4px 9px; font-weight:600;" title="Delete User">
-                                <i class="bi bi-trash"></i> Delete
-                            </button>
-                        </div>
-                    </td>
+                    ${actionCell}
                 </tr>`;
             });
         }

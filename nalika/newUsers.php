@@ -1,8 +1,11 @@
 <?php
 include "connection.php";
-session_start();
-if (!isset($_SESSION['user'])) {
-    header("Location: ../index.php");
+include "auth.php";
+require_once "permissions.php";
+
+$isMemberSide = in_array(strtolower(trim($loggedRole ?? '')), ['member', 'trainee']) && stripos($loggedUsername ?? '', 'admin') === false;
+if ($isMemberSide || !hasPermission("newUsers")) {
+    header("Location: dashboard.php");
     exit();
 }
 ?>

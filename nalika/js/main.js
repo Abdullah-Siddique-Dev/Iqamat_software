@@ -732,6 +732,77 @@ function initProjectKanban() {
   });
 }
 
+/* ─── Global Input Validation Filters (Letters Only & Phone Only) ─── */
+function initInputValidationFilters() {
+  function showInputNotice(input, message) {
+    var parent = input.parentElement;
+    if (!parent) return;
+    var existing = parent.querySelector('.input-filter-notice');
+    if (existing) {
+      existing.textContent = message;
+      existing.style.display = 'block';
+      clearTimeout(existing._fadeTimer);
+      existing._fadeTimer = setTimeout(function () {
+        existing.style.display = 'none';
+      }, 2500);
+      return;
+    }
+    var notice = document.createElement('small');
+    notice.className = 'input-filter-notice text-danger d-block mt-1';
+    notice.style.fontSize = '0.75rem';
+    notice.style.fontWeight = '500';
+    notice.textContent = message;
+    parent.appendChild(notice);
+    notice._fadeTimer = setTimeout(function () {
+      notice.style.display = 'none';
+    }, 2500);
+  }
+
+  // Keypress: block illegal character immediately
+  document.addEventListener('keypress', function (e) {
+    var target = e.target;
+    if (!target || !target.matches) return;
+
+    // Text / Letters-only: block digits 0-9
+    if (target.matches('.letters-only, [data-type="text-only"], input[name="firstName"], input[name="lastName"], input[name="areaName"], input[name="contactName"], #edit-firstName, #edit-lastName, #edit-areaName, #reg-firstName, #reg-lastName')) {
+      if (/[0-9]/.test(e.key)) {
+        e.preventDefault();
+        showInputNotice(target, 'Only letters allowed. No digits permitted.');
+      }
+    }
+
+    // Phone-only: block letters a-zA-Z
+    if (target.matches('.phone-only, [data-type="phone-only"], input[name="phone"], input[name="contactPhone"], #editPhone, #reg-phone, #edit-contactPhone')) {
+      if (!/[0-9+\-\s]/.test(e.key) && e.key.length === 1) {
+        e.preventDefault();
+        showInputNotice(target, 'Only numbers allowed. No letters permitted.');
+      }
+    }
+  });
+
+  // Input & Paste: strip illegal characters
+  document.addEventListener('input', function (e) {
+    var target = e.target;
+    if (!target || !target.matches) return;
+
+    // Text / Letters-only: strip digits
+    if (target.matches('.letters-only, [data-type="text-only"], input[name="firstName"], input[name="lastName"], input[name="areaName"], input[name="contactName"], #edit-firstName, #edit-lastName, #edit-areaName, #reg-firstName, #reg-lastName')) {
+      if (/[0-9]/.test(target.value)) {
+        target.value = target.value.replace(/[0-9]/g, '');
+        showInputNotice(target, 'Only letters allowed. No digits permitted.');
+      }
+    }
+
+    // Phone-only: strip letters
+    if (target.matches('.phone-only, [data-type="phone-only"], input[name="phone"], input[name="contactPhone"], #editPhone, #reg-phone, #edit-contactPhone')) {
+      if (/[a-zA-Z]/.test(target.value)) {
+        target.value = target.value.replace(/[a-zA-Z]/g, '');
+        showInputNotice(target, 'Only numbers allowed. No letters permitted.');
+      }
+    }
+  });
+}
+
 /* ─── Initialize Everything ──────────────────────────────────────────── */
 
 // AOS must be initialized outside DOMContentLoaded when scripts are at body bottom
@@ -754,4 +825,5 @@ document.addEventListener('DOMContentLoaded', function () {
   initProjectDashboard();
   initProjectCalendar();
   initProjectKanban();
+  initInputValidationFilters();
 });

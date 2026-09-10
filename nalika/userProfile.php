@@ -1237,8 +1237,29 @@ function switchTab(name, btn) {
 })();
 
 function saveProfile() {
-    fetch('updateUserProfile.php', { method:'POST', body: new FormData(document.getElementById('editProfileForm')) })
-        .then(r => r.text()).then(msg => showToast(msg, true))
+    const form = document.getElementById('editProfileForm');
+    const fn = (form.querySelector('[name=firstName]').value || '').trim();
+    const ln = (form.querySelector('[name=lastName]').value || '').trim();
+    const ph = (form.querySelector('[name=phone]').value || '').trim();
+
+    if (/[0-9]/.test(fn)) {
+        showToast('First Name: Only letters allowed. No digits permitted.', false);
+        form.querySelector('[name=firstName]').focus();
+        return;
+    }
+    if (/[0-9]/.test(ln)) {
+        showToast('Last Name: Only letters allowed. No digits permitted.', false);
+        form.querySelector('[name=lastName]').focus();
+        return;
+    }
+    if (/[a-zA-Z]/.test(ph)) {
+        showToast('Phone: Only numbers allowed. No letters permitted.', false);
+        form.querySelector('[name=phone]').focus();
+        return;
+    }
+
+    fetch('updateUserProfile.php', { method:'POST', body: new FormData(form) })
+        .then(r => r.text()).then(msg => showToast(msg, !msg.toLowerCase().includes('error') && !msg.toLowerCase().includes('failed')))
         .catch(() => showToast('Error saving profile.', false));
 }
 

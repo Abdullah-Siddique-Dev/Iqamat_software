@@ -43,6 +43,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         showModal('error', 'Passwords do not match. Please try again.');
     }
 
+    // ✅ Name & Phone validation
+    if (preg_match('/[0-9]/', $firstName)) {
+        showModal('error', 'First Name: Only letters allowed. No digits permitted.');
+    }
+    if (preg_match('/[0-9]/', $lastName)) {
+        showModal('error', 'Last Name: Only letters allowed. No digits permitted.');
+    }
+    if (preg_match('/[a-zA-Z]/', $contact)) {
+        showModal('error', 'Phone: Only numbers allowed. No letters permitted.');
+    }
+
     // ✅ Generate unique username
     $username = $baseUsername;
     $count    = 1;

@@ -18,6 +18,21 @@ if (!$areaName || !$darsType) {
     exit;
 }
 
+if (preg_match('/[0-9]/', $areaName)) {
+    echo "Error: Only letters allowed for Area Name. No digits permitted.";
+    exit;
+}
+
+if (!empty($contactName) && preg_match('/[0-9]/', $contactName)) {
+    echo "Error: Only letters allowed for Contact Name. No digits permitted.";
+    exit;
+}
+
+if (!empty($contactPhone) && preg_match('/[a-zA-Z]/', $contactPhone)) {
+    echo "Error: Only numbers allowed for Contact Phone. No letters permitted.";
+    exit;
+}
+
 // Type string: s s s s s s i s s  (representative_id is integer)
 $stmt = $conn->prepare("
     INSERT INTO dars_areas
