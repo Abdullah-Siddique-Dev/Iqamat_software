@@ -12,7 +12,7 @@ $sessionUserId = (int)$_SESSION['user']['id'];
 
 // Always fetch latest logged-in user from DB
 $stmt = $conn->prepare("
-    SELECT id, username, role, area, firstName, lastName, email, phone, cnic, gender, age, image
+    SELECT id, username, role, area, firstName, lastName, email, phone, cnic, gender, age, image, card, category
     FROM users WHERE id = ? LIMIT 1
 ");
 $stmt->bind_param("i", $sessionUserId);
@@ -21,7 +21,7 @@ $result = $stmt->get_result();
 if ($result->num_rows === 0) { session_unset(); session_destroy(); header("Location: ../index.php"); exit(); }
 $loggedUser = $result->fetch_assoc();
 $stmt->close();
-$_SESSION['user'] = array_intersect_key($loggedUser, array_flip(['id','username','role','area','firstName','lastName','email']));
+$_SESSION['user'] = array_intersect_key($loggedUser, array_flip(['id','username','role','area','firstName','lastName','email','card','category']));
 $loggedRole = $loggedUser['role'];
 $loggedId   = (int)$loggedUser['id'];
 
@@ -1139,6 +1139,23 @@ $totalTeamsCount = count($supervisedAreas) + count($userTeams);
                     </div>
                     <div class="sf-group"><label class="sf-label">CNIC</label>
                         <input type="text" class="sf-input" name="cnic" value="<?= htmlspecialchars($profileUser['cnic'] ?? '') ?>"></div>
+                    <div class="sf-row">
+                        <div class="sf-group"><label class="sf-label">Card</label>
+                            <select class="sf-input" name="card" style="cursor:pointer;">
+                                <option value="Diamond" <?= ($profileUser['card'] ?? 'Diamond')==='Diamond'?'selected':'' ?>>Diamond</option>
+                                <option value="Gold"    <?= ($profileUser['card'] ?? '')==='Gold'?'selected':'' ?>>Gold</option>
+                                <option value="Silver"  <?= ($profileUser['card'] ?? '')==='Silver'?'selected':'' ?>>Silver</option>
+                            </select>
+                        </div>
+                        <div class="sf-group"><label class="sf-label">Category</label>
+                            <select class="sf-input" name="category" style="cursor:pointer;">
+                                <option value="A" <?= ($profileUser['category'] ?? 'B')==='A'?'selected':'' ?>>Category A</option>
+                                <option value="B" <?= ($profileUser['category'] ?? 'B')==='B'?'selected':'' ?>>Category B</option>
+                                <option value="C" <?= ($profileUser['category'] ?? 'B')==='C'?'selected':'' ?>>Category C</option>
+                                <option value="D" <?= ($profileUser['category'] ?? 'B')==='D'?'selected':'' ?>>Category D</option>
+                            </select>
+                        </div>
+                    </div>
                     <button type="button" class="btn-sf-save" onclick="saveProfile()">
                         <i class="bi bi-check-lg"></i> Save Changes
                     </button>

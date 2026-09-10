@@ -1,4 +1,9 @@
 <?php
+if (!ini_get('date.timezone')) {
+    date_default_timezone_set('Asia/Karachi');
+} else {
+    @date_default_timezone_set('Asia/Karachi');
+}
 include "connection.php";
 include "auth.php";
 // $loggedUserId, $loggedRole, $loggedArea set by auth.php
@@ -28,91 +33,196 @@ $createTableSql = "CREATE TABLE IF NOT EXISTS `admin_tasks` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
 mysqli_query($conn, $createTableSql);
 
-// Ensure new columns exist if table was created previously
-@mysqli_query($conn, "ALTER TABLE `admin_tasks` ADD COLUMN `task_code` VARCHAR(50) NULL AFTER `category`");
+// Ensure columns have enough capacity for multiple codes, cards, categories, and members
+@mysqli_query($conn, "ALTER TABLE `admin_tasks` MODIFY COLUMN `task_code` VARCHAR(255) NULL");
+@mysqli_query($conn, "ALTER TABLE `admin_tasks` MODIFY COLUMN `card` VARCHAR(255) NULL");
+@mysqli_query($conn, "ALTER TABLE `admin_tasks` MODIFY COLUMN `category` VARCHAR(255) NULL");
+@mysqli_query($conn, "ALTER TABLE `admin_tasks` MODIFY COLUMN `specific_member_id` TEXT NULL");
 @mysqli_query($conn, "ALTER TABLE `admin_tasks` ADD COLUMN `task_name` VARCHAR(255) NULL AFTER `task_code`");
-@mysqli_query($conn, "ALTER TABLE `admin_tasks` ADD COLUMN `specific_member_id` VARCHAR(255) NULL AFTER `category`");
-@mysqli_query($conn, "ALTER TABLE `admin_tasks` MODIFY COLUMN `specific_member_id` VARCHAR(255) NULL");
 @mysqli_query($conn, "ALTER TABLE `admin_tasks` ADD COLUMN `specifics` TEXT NULL AFTER `description`");
 @mysqli_query($conn, "ALTER TABLE `admin_tasks` ADD COLUMN `expiry_date` DATETIME NULL AFTER `specifics`");
 
-// Helper function to generate Task Code (e.g. GD5, GD11, DB1)
-function generateTaskCode($conn, $card, $category, $specificMemberIds = null) {
-    $cardVal = !empty($card) ? trim($card) : '';
-    $catVal = !empty($category) ? trim($category) : '';
+// Helper function to generate Task Code(s) (e.g. SB1, or multiple like SB1, DB1)
+function generateTaskCode($conn, $card, $category, $specificMemberIds = null, $excludeTaskId = null) {
+    $excludeSql = $excludeTaskId ? "AND id != " . intval($excludeTaskId) : "";
 
-    if (!empty($specificMemberIds) && (empty($cardVal) || empty($catVal))) {
+    // If specific members are selected, generate code for EACH unique card+category combination
+    if (!empty($specificMemberIds)) {
         if (is_array($specificMemberIds)) {
-            $firstId = intval($specificMemberIds[0] ?? 0);
+            $cleanIds = array_filter(array_map('intval', $specificMemberIds));
         } else {
-            $parts = explode(',', $specificMemberIds);
-            $firstId = intval($parts[0] ?? 0);
+            $cleanIds = array_filter(array_map('intval', explode(',', (string)$specificMemberIds)));
         }
-        if ($firstId > 0) {
-            $uRes = mysqli_query($conn, "SELECT category, card FROM users WHERE id = '$firstId'");
-            if ($uRes && $uRow = mysqli_fetch_assoc($uRes)) {
-                if (empty($catVal) && !empty($uRow['category'])) $catVal = $uRow['category'];
-                if (empty($cardVal) && !empty($uRow['card'])) $cardVal = $uRow['card'];
+
+        if (!empty($cleanIds)) {
+            $idStr = implode(',', $cleanIds);
+            $uRes = mysqli_query($conn, "SELECT id, card, category FROM users WHERE id IN ($idStr)");
+            $prefixes = [];
+            if ($uRes) {
+                while ($u = mysqli_fetch_assoc($uRes)) {
+                    $uC = !empty($u['card']) ? trim($u['card']) : 'Diamond';
+                    $uCat = !empty($u['category']) ? trim($u['category']) : 'B';
+                    $p = strtoupper(substr($uC, 0, 1)) . strtoupper(substr($uCat, 0, 1));
+                    $prefixes[$p] = true;
+                }
+            }
+
+            if (!empty($prefixes)) {
+                $codes = [];
+                $sortedPrefixes = array_keys($prefixes);
+                sort($sortedPrefixes);
+                foreach ($sortedPrefixes as $p) {
+                    $cntRes = mysqli_query($conn, "SELECT task_code FROM admin_tasks WHERE task_code LIKE '%{$p}%' $excludeSql");
+                    $maxNum = 0;
+                    if ($cntRes) {
+                        while ($cRow = mysqli_fetch_assoc($cntRes)) {
+                            preg_match_all('/' . $p . '(\d+)/i', $cRow['task_code'] ?? '', $matches);
+                            if (!empty($matches[1])) {
+                                foreach ($matches[1] as $np) {
+                                    $numPart = intval($np);
+                                    if ($numPart > $maxNum) $maxNum = $numPart;
+                                }
+                            }
+                        }
+                    }
+                    $codes[] = $p . ($maxNum + 1);
+                }
+                return implode(', ', $codes);
             }
         }
     }
 
-    if (empty($cardVal)) $cardVal = 'Diamond';
-    if (empty($catVal)) $catVal = 'B';
+    // Default By Card & Category
+    $cardVal = !empty($card) ? trim($card) : 'Diamond';
+    $catVal = !empty($category) ? trim($category) : 'B';
 
     $firstChar = strtoupper(substr($cardVal, 0, 1));
     $secondChar = strtoupper(substr($catVal, 0, 1));
     $prefix = $firstChar . $secondChar;
 
-    $cntRes = mysqli_query($conn, "SELECT task_code FROM admin_tasks WHERE task_code LIKE '{$prefix}%'");
+    $cntRes = mysqli_query($conn, "SELECT task_code FROM admin_tasks WHERE task_code LIKE '%{$prefix}%' $excludeSql");
     $maxNum = 0;
     if ($cntRes) {
         while ($cRow = mysqli_fetch_assoc($cntRes)) {
-            if (!empty($cRow['task_code'])) {
-                $numPart = intval(substr($cRow['task_code'], strlen($prefix)));
-                if ($numPart > $maxNum) $maxNum = $numPart;
+            preg_match_all('/' . $prefix . '(\d+)/i', $cRow['task_code'] ?? '', $matches);
+            if (!empty($matches[1])) {
+                foreach ($matches[1] as $np) {
+                    $numPart = intval($np);
+                    if ($numPart > $maxNum) $maxNum = $numPart;
+                }
             }
         }
     }
     return $prefix . ($maxNum + 1);
 }
 
-// Backfill missing task_code for existing tasks
-$unassigned = mysqli_query($conn, "SELECT id, card, category, specific_member_id FROM admin_tasks WHERE task_code IS NULL OR task_code = '' ORDER BY id ASC");
-if ($unassigned && mysqli_num_rows($unassigned) > 0) {
-    while ($taskRow = mysqli_fetch_assoc($unassigned)) {
-        $tId = $taskRow['id'];
-        $c = $taskRow['card'] ?? '';
-        $cat = $taskRow['category'] ?? '';
-        $specId = $taskRow['specific_member_id'] ?? null;
+// Backfill missing task_code and repair rows with missing cards / categories
+$allTasksToRepair = mysqli_query($conn, "SELECT id, card, category, specific_member_id, task_code FROM admin_tasks WHERE task_code IS NULL OR task_code = '' OR card IS NULL OR card = '' OR card = '—' OR category IS NULL OR category = '' OR category = '—'");
+if ($allTasksToRepair && mysqli_num_rows($allTasksToRepair) > 0) {
+    while ($r = mysqli_fetch_assoc($allTasksToRepair)) {
+        $rId = $r['id'];
+        $currCard = trim($r['card'] ?? '');
+        $currCat = trim($r['category'] ?? '');
         
-        $cardVal = !empty($c) ? $c : 'Diamond';
-        $catVal = !empty($cat) ? $cat : 'B';
+        $resolvedCards = [];
+        $resolvedCats = [];
+        $memberPrefixes = [];
         
-        if ($specId && (empty($c) || empty($cat))) {
-            $specIdEsc = intval($specId);
-            $uRes = mysqli_query($conn, "SELECT category FROM users WHERE id = '$specIdEsc'");
-            if ($uRes && $uRow = mysqli_fetch_assoc($uRes)) {
-                if (empty($cat) && !empty($uRow['category'])) $catVal = $uRow['category'];
-            }
-        }
-        
-        $firstChar = strtoupper(substr(trim($cardVal), 0, 1));
-        $secondChar = strtoupper(substr(trim($catVal), 0, 1));
-        $prefix = $firstChar . $secondChar;
-        
-        $cntRes = mysqli_query($conn, "SELECT task_code FROM admin_tasks WHERE task_code LIKE '{$prefix}%' AND id != '$tId'");
-        $maxNum = 0;
-        if ($cntRes) {
-            while ($cRow = mysqli_fetch_assoc($cntRes)) {
-                if (!empty($cRow['task_code'])) {
-                    $numPart = intval(substr($cRow['task_code'], strlen($prefix)));
-                    if ($numPart > $maxNum) $maxNum = $numPart;
+        // 1. If currently valid, collect them
+        if (!empty($currCard) && strtolower($currCard) !== 'null' && $currCard !== '—') {
+            foreach (explode(',', $currCard) as $ci) {
+                $ciTrim = trim($ci);
+                if (!empty($ciTrim) && strtolower($ciTrim) !== 'null' && $ciTrim !== '—') {
+                    $resolvedCards[$ciTrim] = true;
                 }
             }
         }
-        $newCode = $prefix . ($maxNum + 1);
-        mysqli_query($conn, "UPDATE admin_tasks SET task_code = '$newCode' WHERE id = '$tId'");
+        if (!empty($currCat) && strtolower($currCat) !== 'null' && $currCat !== '—') {
+            foreach (explode(',', $currCat) as $cati) {
+                $catiTrim = trim($cati);
+                if (!empty($catiTrim) && strtolower($catiTrim) !== 'null' && $catiTrim !== '—') {
+                    $resolvedCats[$catiTrim] = true;
+                }
+            }
+        }
+        
+        // 2. From specific_member_id if available
+        $mIds = array_filter(array_map('intval', explode(',', $r['specific_member_id'] ?? '')));
+        if (!empty($mIds)) {
+            $mIdStr = implode(',', $mIds);
+            $uRes = mysqli_query($conn, "SELECT card, category FROM users WHERE id IN ($mIdStr)");
+            if ($uRes) {
+                while ($u = mysqli_fetch_assoc($uRes)) {
+                    $uC = !empty($u['card']) ? trim($u['card']) : 'Diamond';
+                    $uCat = !empty($u['category']) ? trim($u['category']) : 'B';
+                    $resolvedCards[$uC] = true;
+                    $resolvedCats[$uCat] = true;
+                    $p = strtoupper(substr($uC, 0, 1)) . strtoupper(substr($uCat, 0, 1));
+                    $memberPrefixes[$p] = true;
+                }
+            }
+        }
+        
+        // 3. From task_code(s) (e.g. DB1, SD1, SB1) if still missing
+        $tCodes = array_filter(array_map('trim', explode(',', $r['task_code'] ?? '')));
+        foreach ($tCodes as $tc) {
+            if (strlen($tc) >= 2) {
+                $cLetter = strtoupper(substr($tc, 0, 1));
+                $catLetter = strtoupper(substr($tc, 1, 1));
+                $decodedCard = ($cLetter === 'D') ? 'Diamond' : (($cLetter === 'G') ? 'Gold' : (($cLetter === 'S') ? 'Silver' : null));
+                if ($decodedCard) $resolvedCards[$decodedCard] = true;
+                if (in_array($catLetter, ['A', 'B', 'C', 'D'])) $resolvedCats[$catLetter] = true;
+            }
+        }
+        
+        // Fallbacks if absolutely empty
+        if (empty($resolvedCards)) $resolvedCards['Diamond'] = true;
+        if (empty($resolvedCats)) $resolvedCats['B'] = true;
+        
+        $finalCardStr = implode(', ', array_keys($resolvedCards));
+        $finalCatStr = implode(', ', array_keys($resolvedCats));
+        
+        // Only regenerate task_code if it was empty
+        if (empty($tCodes)) {
+            $prefixesToUse = !empty($memberPrefixes) ? array_keys($memberPrefixes) : [];
+            if (empty($prefixesToUse)) {
+                foreach (array_keys($resolvedCards) as $rc) {
+                    foreach (array_keys($resolvedCats) as $rcat) {
+                        $prefixesToUse[] = strtoupper(substr($rc, 0, 1)) . strtoupper(substr($rcat, 0, 1));
+                    }
+                }
+            }
+            $prefixesToUse = array_unique($prefixesToUse);
+            sort($prefixesToUse);
+            
+            $finalCodes = [];
+            foreach ($prefixesToUse as $p) {
+                $cntRes = mysqli_query($conn, "SELECT task_code FROM admin_tasks WHERE task_code LIKE '%{$p}%' AND id != '$rId'");
+                $maxNum = 0;
+                if ($cntRes) {
+                    while ($cRow = mysqli_fetch_assoc($cntRes)) {
+                        preg_match_all('/' . $p . '(\d+)/i', $cRow['task_code'] ?? '', $matches);
+                        if (!empty($matches[1])) {
+                            foreach ($matches[1] as $np) {
+                                $npVal = intval($np);
+                                if ($npVal > $maxNum) $maxNum = $npVal;
+                            }
+                        }
+                    }
+                }
+                $finalCodes[] = $p . ($maxNum + 1);
+            }
+            $finalCodeStr = implode(', ', $finalCodes);
+        } else {
+            $finalCodeStr = implode(', ', $tCodes);
+        }
+        
+        if ($currCard !== $finalCardStr || $currCat !== $finalCatStr || ($r['task_code'] ?? '') !== $finalCodeStr) {
+            $eCard = mysqli_real_escape_string($conn, $finalCardStr);
+            $eCat = mysqli_real_escape_string($conn, $finalCatStr);
+            $eCode = mysqli_real_escape_string($conn, $finalCodeStr);
+            mysqli_query($conn, "UPDATE admin_tasks SET card = '$eCard', category = '$eCat', task_code = '$eCode' WHERE id = '$rId'");
+        }
     }
 }
 
@@ -163,11 +273,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $assignType = $_POST['assign_type'] ?? 'card_cat';
         
         if ($assignType === 'member') {
-            $rawCard = null;
-            $rawCategory = null;
-            $card = "NULL";
-            $category = "NULL";
-            
             $memberIdsInput = $_POST['specific_member_ids'] ?? ($_POST['specific_member_id'] ?? []);
             if (is_array($memberIdsInput)) {
                 $cleanIds = array_filter(array_map('intval', $memberIdsInput));
@@ -183,6 +288,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $rawMemberIds = implode(',', $cleanIds);
             $specificMemberId = "'" . mysqli_real_escape_string($conn, $rawMemberIds) . "'";
+
+            // Determine cards & categories from selected members
+            $mIdStr = implode(',', $cleanIds);
+            $uRes = mysqli_query($conn, "SELECT id, card, category FROM users WHERE id IN ($mIdStr)");
+            $assignedCards = [];
+            $assignedCats = [];
+            if ($uRes) {
+                while ($uRow = mysqli_fetch_assoc($uRes)) {
+                    $c = !empty($uRow['card']) ? trim($uRow['card']) : 'Diamond';
+                    $cat = !empty($uRow['category']) ? trim($uRow['category']) : 'B';
+                    $assignedCards[$c] = true;
+                    $assignedCats[$cat] = true;
+                }
+            }
+            $rawCard = implode(', ', array_keys($assignedCards));
+            $rawCategory = implode(', ', array_keys($assignedCats));
+            $card = "'" . mysqli_real_escape_string($conn, $rawCard) . "'";
+            $category = "'" . mysqli_real_escape_string($conn, $rawCategory) . "'";
         } else {
             $rawCard = $_POST['card'] ?? 'Diamond';
             $rawCategory = $_POST['category'] ?? 'B';
@@ -227,11 +350,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $assignType = $_POST['assign_type'] ?? 'card_cat';
 
         if ($assignType === 'member') {
-            $rawCard = null;
-            $rawCategory = null;
-            $card = "NULL";
-            $category = "NULL";
-            
             $memberIdsInput = $_POST['specific_member_ids'] ?? ($_POST['specific_member_id'] ?? []);
             if (is_array($memberIdsInput)) {
                 $cleanIds = array_filter(array_map('intval', $memberIdsInput));
@@ -247,6 +365,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $rawMemberIds = implode(',', $cleanIds);
             $specificMemberId = "'" . mysqli_real_escape_string($conn, $rawMemberIds) . "'";
+
+            // Determine cards & categories from selected members
+            $mIdStr = implode(',', $cleanIds);
+            $uRes = mysqli_query($conn, "SELECT id, card, category FROM users WHERE id IN ($mIdStr)");
+            $assignedCards = [];
+            $assignedCats = [];
+            if ($uRes) {
+                while ($uRow = mysqli_fetch_assoc($uRes)) {
+                    $c = !empty($uRow['card']) ? trim($uRow['card']) : 'Diamond';
+                    $cat = !empty($uRow['category']) ? trim($uRow['category']) : 'B';
+                    $assignedCards[$c] = true;
+                    $assignedCats[$cat] = true;
+                }
+            }
+            $rawCard = implode(', ', array_keys($assignedCards));
+            $rawCategory = implode(', ', array_keys($assignedCats));
+            $card = "'" . mysqli_real_escape_string($conn, $rawCard) . "'";
+            $category = "'" . mysqli_real_escape_string($conn, $rawCategory) . "'";
         } else {
             $rawCard = $_POST['card'] ?? 'Diamond';
             $rawCategory = $_POST['category'] ?? 'B';
@@ -269,17 +405,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Expiry Date & Time is mandatory. Please select an expiry date.";
             $messageType = "warning";
         } else {
-            // Check existing task code and recalculate if card/category changed or code missing
-            $exRes = mysqli_query($conn, "SELECT card, category, specific_member_id, task_code FROM admin_tasks WHERE id = '$taskId'");
-            $exRow = mysqli_fetch_assoc($exRes);
-            $cardChanged = ($exRow && ($exRow['card'] !== $rawCard || $exRow['category'] !== $rawCategory));
-            
-            if (empty($exRow['task_code']) || $cardChanged) {
-                $newTaskCode = generateTaskCode($conn, $rawCard, $rawCategory, $rawMemberIds);
-                $codeSql = ", task_code = '$newTaskCode'";
-            } else {
-                $codeSql = "";
-            }
+            $newTaskCode = generateTaskCode($conn, $rawCard, $rawCategory, $rawMemberIds, $taskId);
+            $codeSql = ", task_code = '$newTaskCode'";
 
             $updateSql = "UPDATE admin_tasks SET task_name = '$taskName', card = $card, category = $category, specific_member_id = $specificMemberId, description = '$description', specifics = '$specifics', expiry_date = $expiryDateSql $codeSql WHERE id = '$taskId'";
             if (mysqli_query($conn, $updateSql)) {
@@ -750,9 +877,13 @@ if ($loggedUserId) {
                                     <div>
                                         <select id="timeFilter" class="form-select">
                                             <option value="">All Time</option>
-                                            <option value="daily">Daily</option>
-                                            <option value="weekly">Weekly</option>
-                                            <option value="monthly">Monthly</option>
+                                            <option value="daily">Daily / Today</option>
+                                            <option value="yesterday">Yesterday</option>
+                                            <option value="last_3_days">Last 3 Days</option>
+                                            <option value="weekly">This Week</option>
+                                            <option value="previous_week">Previous Week</option>
+                                            <option value="monthly">This Month</option>
+                                            <option value="previous_month">Previous Month</option>
                                             <option value="yearly">Yearly</option>
                                         </select>
                                     </div>
@@ -780,7 +911,19 @@ if ($loggedUserId) {
                                         <span class="badge-category"><?php echo htmlspecialchars($loggedCategory ?: 'B'); ?></span>
                                     </div>
                                     <?php endif; ?>
+                                    <div>
+                                        <button type="button" id="resetFiltersBtn" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1" style="border-color:#293647; color:#cbd5e1; padding:7px 12px; border-radius:8px; white-space:nowrap;" onclick="resetAllFilters()" title="Reset all filters">
+                                            <i class="bi bi-arrow-counterclockwise"></i> <span>Reset Filters</span>
+                                        </button>
+                                    </div>
                                 </div>
+                            </div>
+
+                            <!-- Active Filters Strip -->
+                            <div id="activeFiltersStrip" class="d-flex align-items-center gap-2 flex-wrap mb-3 px-1" style="display:none !important; font-size:0.83rem;">
+                                <span class="text-muted"><i class="bi bi-funnel-fill text-primary me-1"></i>Active filters:</span>
+                                <span id="activeFilterBadges" class="d-flex gap-2 flex-wrap align-items-center"></span>
+                                <a href="javascript:void(0)" onclick="resetAllFilters()" class="text-danger small ms-1 font-weight-bold" style="text-decoration:none;">Clear all</a>
                             </div>
                         </div>
 
@@ -835,22 +978,54 @@ if ($loggedUserId) {
                                                     $expiryDateOnly = !empty($expiryRaw) ? date('Y-m-d', strtotime($expiryRaw)) : '';
                                                     $createdDateOnly = !empty($row['created_at']) ? date('Y-m-d', strtotime($row['created_at'])) : '';
                                                     $isExpired = (!empty($expiryRaw) && strtotime('now') > strtotime($expiryRaw));
+
+                                                    // Robustly resolve cards and categories for this row
+                                                    $rowCardsList = array_filter(array_map('trim', explode(',', $row['card'] ?? '')));
+                                                    if (empty($rowCardsList) && !empty($row['task_code'])) {
+                                                        foreach (explode(',', $row['task_code']) as $tc) {
+                                                            $cl = strtoupper(substr(trim($tc), 0, 1));
+                                                            $decC = ($cl === 'D') ? 'Diamond' : (($cl === 'G') ? 'Gold' : (($cl === 'S') ? 'Silver' : null));
+                                                            if ($decC && !in_array($decC, $rowCardsList)) $rowCardsList[] = $decC;
+                                                        }
+                                                    }
+                                                    if (empty($rowCardsList)) $rowCardsList = ['Diamond'];
+
+                                                    $rowCatsList = array_filter(array_map('trim', explode(',', $row['category'] ?? '')));
+                                                    if (empty($rowCatsList) && !empty($row['task_code'])) {
+                                                        foreach (explode(',', $row['task_code']) as $tc) {
+                                                            $catl = strtoupper(substr(trim($tc), 1, 1));
+                                                            if (in_array($catl, ['A', 'B', 'C', 'D']) && !in_array($catl, $rowCatsList)) $rowCatsList[] = $catl;
+                                                        }
+                                                    }
+                                                    if (empty($rowCatsList)) $rowCatsList = ['B'];
+
+                                                    $dataCardAttr = htmlspecialchars(strtolower(implode(',', $rowCardsList)));
+                                                    $dataCatAttr = htmlspecialchars(strtolower(implode(',', $rowCatsList)));
                                                 ?>
-                                                <tr class="task-row" data-expiry-date="<?php echo $expiryDateOnly; ?>" data-created-date="<?php echo $createdDateOnly; ?>">
-                                                    <td><span class="badge bg-primary font-weight-bold" style="font-size:0.82rem; letter-spacing:0.5px;"><?php echo $taskCode; ?></span></td>
+                                                <tr class="task-row" 
+                                                    data-expiry-date="<?php echo $expiryDateOnly; ?>" 
+                                                    data-created-date="<?php echo $createdDateOnly; ?>"
+                                                    data-card="<?php echo $dataCardAttr; ?>"
+                                                    data-category="<?php echo $dataCatAttr; ?>">
                                                     <td>
-                                                        <?php if (!empty($row['card'])): ?>
-                                                            <span class="badge-card"><?php echo htmlspecialchars($row['card']); ?></span>
-                                                        <?php else: ?>
-                                                            <span class="text-muted small">—</span>
-                                                        <?php endif; ?>
+                                                        <?php
+                                                        $codes = array_filter(array_map('trim', explode(',', $row['task_code'] ?? '')));
+                                                        if (empty($codes)) $codes = ['T' . $tId];
+                                                        foreach ($codes as $cIdx => $cCode):
+                                                            $badgeBg = ($cIdx % 2 === 0) ? 'bg-primary' : 'bg-info text-dark';
+                                                        ?>
+                                                            <span class="badge <?php echo $badgeBg; ?> font-weight-bold me-1 mb-1" style="font-size:0.82rem; letter-spacing:0.5px;"><?php echo htmlspecialchars($cCode); ?></span>
+                                                        <?php endforeach; ?>
                                                     </td>
                                                     <td>
-                                                        <?php if (!empty($row['category'])): ?>
-                                                            <span class="badge-category"><?php echo htmlspecialchars($row['category']); ?></span>
-                                                        <?php else: ?>
-                                                            <span class="text-muted small">—</span>
-                                                        <?php endif; ?>
+                                                        <?php foreach ($rowCardsList as $cItem): ?>
+                                                            <span class="badge-card me-1 mb-1 d-inline-block"><?php echo htmlspecialchars($cItem); ?></span>
+                                                        <?php endforeach; ?>
+                                                    </td>
+                                                    <td>
+                                                        <?php foreach ($rowCatsList as $catItem): ?>
+                                                            <span class="badge-category me-1 mb-1"><?php echo htmlspecialchars($catItem); ?></span>
+                                                        <?php endforeach; ?>
                                                     </td>
                                                     <td class="task-name-cell">
                                                         <span class="font-weight-bold text-white"><?php echo $taskDisplayName; ?></span>
@@ -860,7 +1035,7 @@ if ($loggedUserId) {
                                                         <?php if (!empty($row['specifics'])): ?>
                                                             <small class="text-info d-block mt-1"><i class="bi bi-info-circle me-1"></i><?php echo htmlspecialchars($row['specifics']); ?></small>
                                                         <?php endif; ?>
-                                                        <?php if (!empty($assignedText)): ?>
+                                                        <?php if ($canManageTasks && !empty($assignedText)): ?>
                                                             <small class="text-warning d-block mt-1"><i class="bi bi-people-fill me-1"></i>Assigned to: <?php echo htmlspecialchars($assignedText); ?></small>
                                                         <?php endif; ?>
                                                     </td>
@@ -995,7 +1170,14 @@ if ($loggedUserId) {
                                                 </tr>
                                             <?php endwhile; ?>
                                             <tr id="noFilteredTasksRow" style="display:none;">
-                                                <td colspan="8" class="text-center text-muted py-4"><i class="bi bi-funnel me-1"></i>No tasks found matching filter criteria.</td>
+                                                <td colspan="8" class="text-center py-4" style="background: rgba(16, 23, 38, 0.4);">
+                                                    <i class="bi bi-funnel text-warning" style="font-size: 1.8rem; display:block; margin-bottom:8px;"></i>
+                                                    <div class="text-white font-weight-bold mb-1" style="font-size:0.95rem;">No tasks match your selected filter criteria.</div>
+                                                    <div id="noResultsFilterSummary" class="text-muted small mb-3"></div>
+                                                    <button type="button" class="btn btn-sm btn-outline-warning font-weight-bold" onclick="resetAllFilters()">
+                                                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset Filters &amp; View All Tasks
+                                                    </button>
+                                                </td>
                                             </tr>
                                         <?php else: ?>
                                             <tr>
@@ -1017,7 +1199,7 @@ if ($loggedUserId) {
     <div class="modal fade" id="addTaskModal" tabindex="-1" aria-labelledby="addTaskModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content" style="background:#192436; border:1px solid #293647; color:#fff;">
-                <form method="POST">
+                <form method="POST" id="addTaskForm">
                     <div class="modal-header" style="border-bottom:1px solid #293647;">
                         <h5 class="modal-title text-white" id="addTaskModalLabel">
                             <i class="bi bi-plus-circle text-success me-2"></i>Add New Task
@@ -1080,9 +1262,10 @@ if ($loggedUserId) {
                                     $uCard = !empty($u['card']) ? $u['card'] : 'Diamond';
                                     $uCat = !empty($u['category']) ? $u['category'] : 'B';
                                     $nameWithCardCat = htmlspecialchars($u['firstName'] . ' ' . $u['lastName']) . ' (' . htmlspecialchars($uCard . ' ' . $uCat) . ')';
+                                    $rawFullName = trim($u['firstName'] . ' ' . $u['lastName']);
                                 ?>
                                     <label class="member-check-item d-flex align-items-center p-2 mb-1 rounded" style="cursor:pointer;">
-                                        <input type="checkbox" name="specific_member_ids[]" value="<?php echo $u['id']; ?>" class="form-check-input member-circle-check me-2" onchange="updateSelectedCount('add')">
+                                        <input type="checkbox" name="specific_member_ids[]" value="<?php echo $u['id']; ?>" class="form-check-input member-circle-check me-2" data-card="<?php echo htmlspecialchars($uCard); ?>" data-category="<?php echo htmlspecialchars($uCat); ?>" data-name="<?php echo htmlspecialchars($rawFullName); ?>" onchange="updateSelectedCount('add')">
                                         <div class="d-flex flex-column" style="line-height:1.2;">
                                             <span class="text-white small font-weight-bold member-name-txt"><?php echo $nameWithCardCat; ?></span>
                                             <span class="text-muted" style="font-size:0.72rem;">@<?php echo htmlspecialchars($u['username']); ?> &bull; <?php echo ucfirst(htmlspecialchars($u['role'] ?? 'member')); ?></span>
@@ -1126,7 +1309,7 @@ if ($loggedUserId) {
     <div class="modal fade" id="editTaskModal" tabindex="-1" aria-labelledby="editTaskModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content" style="background:#192436; border:1px solid #293647; color:#fff;">
-                <form method="POST">
+                <form method="POST" id="editTaskForm">
                     <div class="modal-header" style="border-bottom:1px solid #293647;">
                         <h5 class="modal-title text-white" id="editTaskModalLabel">
                             <i class="bi bi-pencil-square text-warning me-2"></i>Edit Task
@@ -1190,9 +1373,10 @@ if ($loggedUserId) {
                                     $uCard = !empty($u['card']) ? $u['card'] : 'Diamond';
                                     $uCat = !empty($u['category']) ? $u['category'] : 'B';
                                     $nameWithCardCat = htmlspecialchars($u['firstName'] . ' ' . $u['lastName']) . ' (' . htmlspecialchars($uCard . ' ' . $uCat) . ')';
+                                    $rawFullName = trim($u['firstName'] . ' ' . $u['lastName']);
                                 ?>
                                     <label class="member-check-item d-flex align-items-center p-2 mb-1 rounded" style="cursor:pointer;">
-                                        <input type="checkbox" name="specific_member_ids[]" value="<?php echo $u['id']; ?>" class="form-check-input member-circle-check me-2" onchange="updateSelectedCount('edit')">
+                                        <input type="checkbox" name="specific_member_ids[]" value="<?php echo $u['id']; ?>" class="form-check-input member-circle-check me-2" data-card="<?php echo htmlspecialchars($uCard); ?>" data-category="<?php echo htmlspecialchars($uCat); ?>" data-name="<?php echo htmlspecialchars($rawFullName); ?>" onchange="updateSelectedCount('edit')">
                                         <div class="d-flex flex-column" style="line-height:1.2;">
                                             <span class="text-white small font-weight-bold member-name-txt"><?php echo $nameWithCardCat; ?></span>
                                             <span class="text-muted" style="font-size:0.72rem;">@<?php echo htmlspecialchars($u['username']); ?> &bull; <?php echo ucfirst(htmlspecialchars($u['role'] ?? 'member')); ?></span>
@@ -1237,6 +1421,44 @@ if ($loggedUserId) {
                     <input type="hidden" name="action" value="delete_task">
                     <input type="hidden" name="task_id" id="delete_task_id">
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── CARD / CATEGORY MISMATCH WARNING MODAL ── -->
+    <div class="modal fade" id="cardCatMismatchWarningModal" tabindex="-1" aria-labelledby="cardCatMismatchWarningModalLabel" aria-hidden="true" style="z-index: 1065;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content" style="background:#192436; border:1px solid #f59e0b; color:#fff; box-shadow: 0 10px 30px rgba(0,0,0,0.6);">
+                <div class="modal-header" style="border-bottom:1px solid #293647; background:rgba(245, 158, 11, 0.12);">
+                    <h5 class="modal-title text-warning" id="cardCatMismatchWarningModalLabel">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>Different Card / Category Detected
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-white mb-3" style="font-size:0.95rem;">
+                        The selected members belong to <strong class="text-warning">different Cards or Categories</strong>:
+                    </p>
+
+                    <div class="mb-3 p-3 rounded" style="background:#101726; border:1px solid #293647;">
+                        <label class="small text-muted text-uppercase font-weight-bold d-block mb-2">Selected Members Breakdown:</label>
+                        <div id="warningGroupsList" class="d-flex flex-column gap-2"></div>
+                    </div>
+
+                    <div class="p-2 px-3 rounded mb-1" style="background:rgba(13, 110, 253, 0.12); border:1px solid rgba(13, 110, 253, 0.3);">
+                        <small class="text-info d-block">
+                            <i class="bi bi-info-circle me-1"></i> If you click <strong>Proceed Anyway</strong>, multiple task IDs (<span id="warningPreviewIdsText" class="fw-bold text-white"></span>) will be generated and assigned so each member's card & category is covered.
+                        </small>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-top:1px solid #293647; justify-content:space-between;">
+                    <button type="button" class="btn btn-outline-light" onclick="backToSetMembers()">
+                        <i class="bi bi-arrow-left me-1"></i>Set & Select Members
+                    </button>
+                    <button type="button" class="btn btn-warning text-dark font-weight-bold" onclick="proceedAnywayWithMismatch()">
+                        <i class="bi bi-check2-circle me-1"></i>Proceed Anyway
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -1352,6 +1574,161 @@ if ($loggedUserId) {
     </form>
 
     <script>
+    var pendingMismatchForm = null;
+    var warningModalInstance = null;
+
+    function getSelectedMemberGroupMap(prefix) {
+        var checkedBoxes = document.querySelectorAll('#' + prefix + '_member_list input[type="checkbox"]:checked');
+        var groupMap = {};
+
+        checkedBoxes.forEach(function(cb) {
+            var c = cb.getAttribute('data-card') || 'Diamond';
+            var cat = cb.getAttribute('data-category') || 'B';
+            var name = cb.getAttribute('data-name') || cb.value;
+            var key = c.trim() + '|' + cat.trim();
+
+            if (!groupMap[key]) {
+                groupMap[key] = {
+                    card: c.trim(),
+                    category: cat.trim(),
+                    members: []
+                };
+            }
+            groupMap[key].members.push(name);
+        });
+
+        return groupMap;
+    }
+
+    function showDifferentCardCatModal(form, prefix, groupMap) {
+        pendingMismatchForm = form;
+        var groupsList = document.getElementById('warningGroupsList');
+        var previewIdsText = document.getElementById('warningPreviewIdsText');
+
+        if (groupsList) {
+            groupsList.innerHTML = '';
+            var previewCodes = [];
+
+            Object.keys(groupMap).forEach(function(key) {
+                var g = groupMap[key];
+                var p = (g.card.charAt(0) + g.category.charAt(0)).toUpperCase();
+                previewCodes.push(p);
+
+                var itemDiv = document.createElement('div');
+                itemDiv.className = 'p-2 rounded';
+                itemDiv.style.background = '#151f30';
+                itemDiv.style.border = '1px solid #293647';
+                itemDiv.innerHTML = `
+                    <div class="d-flex align-items-center justify-content-between mb-1">
+                        <div>
+                            <span class="badge bg-primary me-1">${escapeHtml(g.card)}</span>
+                            <span class="badge bg-info text-dark">${escapeHtml(g.category)}</span>
+                        </div>
+                        <span class="badge bg-secondary" style="font-size:0.75rem;">${g.members.length} member${g.members.length > 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="small text-white" style="font-size:0.83rem;">
+                        ${g.members.map(m => escapeHtml(m)).join(', ')}
+                    </div>
+                `;
+                groupsList.appendChild(itemDiv);
+            });
+
+            if (previewIdsText) {
+                previewIdsText.textContent = previewCodes.join(', ');
+            }
+        }
+
+        var modalEl = document.getElementById('cardCatMismatchWarningModal');
+        if (modalEl) {
+            warningModalInstance = bootstrap.Modal.getInstance(modalEl);
+            if (!warningModalInstance) {
+                warningModalInstance = new bootstrap.Modal(modalEl);
+            }
+            warningModalInstance.show();
+        }
+    }
+
+    function proceedAnywayWithMismatch() {
+        if (warningModalInstance) {
+            warningModalInstance.hide();
+        }
+        if (pendingMismatchForm) {
+            pendingMismatchForm.dataset.bypassMismatch = "true";
+            pendingMismatchForm.submit();
+        }
+    }
+
+    function backToSetMembers() {
+        if (warningModalInstance) {
+            warningModalInstance.hide();
+        }
+    }
+
+    function escapeHtml(str) {
+        return String(str).replace(/[&<>"']/g, function(m) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            }[m];
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var warningModalEl = document.getElementById('cardCatMismatchWarningModal');
+        if (warningModalEl) {
+            warningModalEl.addEventListener('hidden.bs.modal', function () {
+                var addM = document.getElementById('addTaskModal');
+                var editM = document.getElementById('editTaskModal');
+                if ((addM && addM.classList.contains('show')) || (editM && editM.classList.contains('show'))) {
+                    document.body.classList.add('modal-open');
+                }
+            });
+        }
+
+        var addForm = document.getElementById('addTaskForm');
+        if (addForm) {
+            addForm.addEventListener('submit', function (e) {
+                if (addForm.dataset.bypassMismatch === "true") {
+                    addForm.dataset.bypassMismatch = "";
+                    return true;
+                }
+                var isMember = document.getElementById('add_assign_member') && document.getElementById('add_assign_member').checked;
+                if (isMember) {
+                    var groupMap = getSelectedMemberGroupMap('add');
+                    var keys = Object.keys(groupMap);
+                    if (keys.length > 1) {
+                        e.preventDefault();
+                        showDifferentCardCatModal(addForm, 'add', groupMap);
+                        return false;
+                    }
+                }
+            });
+        }
+
+        var editForm = document.getElementById('editTaskForm');
+        if (editForm) {
+            editForm.addEventListener('submit', function (e) {
+                if (editForm.dataset.bypassMismatch === "true") {
+                    editForm.dataset.bypassMismatch = "";
+                    return true;
+                }
+                var isMember = document.getElementById('edit_assign_member') && document.getElementById('edit_assign_member').checked;
+                if (isMember) {
+                    var groupMap = getSelectedMemberGroupMap('edit');
+                    var keys = Object.keys(groupMap);
+                    if (keys.length > 1) {
+                        e.preventDefault();
+                        showDifferentCardCatModal(editForm, 'edit', groupMap);
+                        return false;
+                    }
+                }
+            });
+        }
+    });
+
     function toggleAssignType(prefix) {
         var isMember = document.getElementById(prefix + '_assign_member').checked;
         var cardCatSec = document.getElementById(prefix + '_card_cat_section');
@@ -1713,6 +2090,23 @@ if ($loggedUserId) {
         }
     });
 
+    // Global reset function accessible from buttons, chips, and modals
+    window.resetAllFilters = function() {
+        var searchInput = document.getElementById('searchInput');
+        var timeFilter = document.getElementById('timeFilter');
+        var cardFilter = document.getElementById('cardFilter');
+        var categoryFilter = document.getElementById('categoryFilter');
+
+        if (searchInput) searchInput.value = '';
+        if (timeFilter) timeFilter.value = '';
+        if (cardFilter) cardFilter.value = '';
+        if (categoryFilter) categoryFilter.value = '';
+
+        if (window.applyTaskFilters) {
+            window.applyTaskFilters();
+        }
+    };
+
     // Client-side search and filtering
     document.addEventListener('DOMContentLoaded', function () {
         var searchInput = document.getElementById('searchInput');
@@ -1730,27 +2124,85 @@ if ($loggedUserId) {
             var taskY = parseInt(parts[0], 10);
             var taskM = parseInt(parts[1], 10) - 1; // 0-indexed month
             var taskD = parseInt(parts[2], 10);
-            var taskDate = new Date(taskY, taskM, taskD);
             
             var now = new Date();
             var nowY = now.getFullYear();
             var nowM = now.getMonth();
             var nowD = now.getDate();
-            
+
+            // Exact calendar midnight comparisons
+            var todayMidnight = new Date(nowY, nowM, nowD).getTime();
+            var taskMidnight = new Date(taskY, taskM, taskD).getTime();
+            var diffDays = Math.round((todayMidnight - taskMidnight) / 86400000); // 1000 * 60 * 60 * 24
+
             if (period === 'daily') {
-                return (taskY === nowY && taskM === nowM && taskD === nowD);
+                return diffDays === 0;
+            } else if (period === 'yesterday') {
+                return diffDays === 1;
+            } else if (period === 'last_3_days') {
+                return diffDays >= 0 && diffDays <= 2;
             } else if (period === 'weekly') {
                 var dayOfWeek = now.getDay();
                 var diffToMon = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
-                var startOfWeek = new Date(nowY, nowM, nowD + diffToMon, 0, 0, 0);
-                var endOfWeek = new Date(nowY, nowM, nowD + diffToMon + 6, 23, 59, 59);
-                return (taskDate >= startOfWeek && taskDate <= endOfWeek);
+                var startOfWeek = new Date(nowY, nowM, nowD + diffToMon).getTime();
+                var endOfWeek = new Date(nowY, nowM, nowD + diffToMon + 6, 23, 59, 59, 999).getTime();
+                return taskMidnight >= startOfWeek && taskMidnight <= endOfWeek;
+            } else if (period === 'previous_week') {
+                var dayOfWeek = now.getDay();
+                var diffToMon = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+                var startOfPrevWeek = new Date(nowY, nowM, nowD + diffToMon - 7).getTime();
+                var endOfPrevWeek = new Date(nowY, nowM, nowD + diffToMon - 1, 23, 59, 59, 999).getTime();
+                return taskMidnight >= startOfPrevWeek && taskMidnight <= endOfPrevWeek;
             } else if (period === 'monthly') {
                 return (taskY === nowY && taskM === nowM);
+            } else if (period === 'previous_month') {
+                var prevMonthY = (nowM === 0) ? nowY - 1 : nowY;
+                var prevMonthM = (nowM === 0) ? 11 : nowM - 1;
+                return (taskY === prevMonthY && taskM === prevMonthM);
             } else if (period === 'yearly') {
                 return (taskY === nowY);
             }
             return true;
+        }
+
+        function updateActiveFilterChips(searchVal, timeVal, cardVal, catVal) {
+            var strip = document.getElementById('activeFiltersStrip');
+            var container = document.getElementById('activeFilterBadges');
+            if (!strip || !container) return;
+
+            var chips = [];
+            if (searchVal) {
+                chips.push({ label: 'Search: "' + searchVal + '"', clear: function() { if (searchInput) { searchInput.value = ''; filterTable(); } } });
+            }
+            if (timeVal) {
+                var timeText = timeFilter && timeFilter.options[timeFilter.selectedIndex] ? timeFilter.options[timeFilter.selectedIndex].text : timeVal;
+                chips.push({ label: 'Time: ' + timeText, clear: function() { if (timeFilter) { timeFilter.value = ''; filterTable(); } } });
+            }
+            if (cardVal) {
+                chips.push({ label: 'Card: ' + (cardFilter ? cardFilter.value : cardVal), clear: function() { if (cardFilter) { cardFilter.value = ''; filterTable(); } } });
+            }
+            if (catVal) {
+                chips.push({ label: 'Category: ' + (categoryFilter ? categoryFilter.value : catVal), clear: function() { if (categoryFilter) { categoryFilter.value = ''; filterTable(); } } });
+            }
+
+            if (chips.length > 0) {
+                strip.style.setProperty('display', 'flex', 'important');
+                container.innerHTML = '';
+                chips.forEach(function(chip) {
+                    var badge = document.createElement('span');
+                    badge.className = 'badge bg-secondary d-inline-flex align-items-center gap-1';
+                    badge.style.cssText = 'background:#1e293b !important; border:1px solid #334155; font-size:0.78rem; padding:4px 8px; color:#cbd5e1;';
+                    badge.innerHTML = chip.label + ' <a href="javascript:void(0)" class="text-danger ms-1" style="text-decoration:none; font-weight:bold;">&times;</a>';
+                    badge.querySelector('a').addEventListener('click', function(e) {
+                        e.preventDefault();
+                        chip.clear();
+                    });
+                    container.appendChild(badge);
+                });
+            } else {
+                strip.style.setProperty('display', 'none', 'important');
+                container.innerHTML = '';
+            }
         }
 
         function filterTable() {
@@ -1764,15 +2216,32 @@ if ($loggedUserId) {
             tableRows.forEach(function (row) {
                 var name = row.querySelector('.task-name-cell') ? row.querySelector('.task-name-cell').textContent.toLowerCase() : '';
                 var desc = row.querySelector('.task-desc-cell') ? row.querySelector('.task-desc-cell').textContent.toLowerCase() : '';
-                var card = row.querySelector('.badge-card') ? row.querySelector('.badge-card').textContent.toLowerCase() : '';
-                var cat = row.querySelector('.badge-category') ? row.querySelector('.badge-category').textContent.toLowerCase() : '';
+                
+                // Collect row cards from data-card attribute AND badge-card texts
+                var dataCard = (row.getAttribute('data-card') || '').toLowerCase();
+                var cardBadgeTexts = Array.from(row.querySelectorAll('.badge-card')).map(function(el) { return el.textContent.toLowerCase().trim(); });
+                var allRowCards = dataCard.split(',').map(function(s) { return s.trim(); }).concat(cardBadgeTexts).filter(Boolean);
+
+                // Collect row categories from data-category attribute AND badge-category texts
+                var dataCat = (row.getAttribute('data-category') || '').toLowerCase();
+                var catBadgeTexts = Array.from(row.querySelectorAll('.badge-category')).map(function(el) { return el.textContent.toLowerCase().trim(); });
+                var allRowCats = dataCat.split(',').map(function(s) { return s.trim(); }).concat(catBadgeTexts).filter(Boolean);
 
                 var expDate = row.getAttribute('data-expiry-date') || '';
                 var crtDate = row.getAttribute('data-created-date') || '';
 
                 var matchesSearch = !searchVal || desc.includes(searchVal) || name.includes(searchVal);
-                var matchesCard = !cardVal || card.includes(cardVal);
-                var matchesCat = !catVal || cat.includes(catVal);
+                
+                // Card filter match (handles single or multi-card tasks like Silver, Diamond)
+                var matchesCard = !cardVal || allRowCards.some(function(c) {
+                    return c === cardVal || c.includes(cardVal) || cardVal.includes(c);
+                });
+
+                // Category filter match (handles single or multi-category tasks)
+                var matchesCat = !catVal || allRowCats.some(function(c) {
+                    return c === catVal;
+                });
+
                 var matchesTime = !timeVal || isDateInPeriod(expDate, timeVal) || isDateInPeriod(crtDate, timeVal);
 
                 if (matchesSearch && matchesCard && matchesCat && matchesTime) {
@@ -1783,15 +2252,81 @@ if ($loggedUserId) {
                 }
             });
 
+            // Update active filter chips
+            updateActiveFilterChips(searchVal, timeVal, cardVal, catVal);
+
+            // Handle empty state
             if (noFilteredRow) {
-                noFilteredRow.style.display = (visibleCount === 0 && tableRows.length > 0) ? '' : 'none';
+                if (visibleCount === 0 && tableRows.length > 0) {
+                    noFilteredRow.style.display = '';
+                    var summaryEl = document.getElementById('noResultsFilterSummary');
+                    if (summaryEl) {
+                        var activeList = [];
+                        if (timeVal) activeList.push('Time: <strong>' + (timeFilter.options[timeFilter.selectedIndex]?.text || timeVal) + '</strong>');
+                        if (cardVal) activeList.push('Card: <strong>' + (cardFilter ? cardFilter.value : cardVal) + '</strong>');
+                        if (catVal) activeList.push('Category: <strong>' + (categoryFilter ? categoryFilter.value : catVal) + '</strong>');
+                        if (searchVal) activeList.push('Search: <strong>"' + searchVal + '"</strong>');
+                        
+                        var msg = activeList.length > 0 ? ('Active filters: ' + activeList.join(' + ')) : '';
+                        if (timeVal === 'yesterday') {
+                            msg += '<br><span class="text-warning small"><i class="bi bi-info-circle me-1"></i>Note: No tasks in the system were created or scheduled to expire yesterday.</span>';
+                        }
+                        summaryEl.innerHTML = msg;
+                    }
+                } else {
+                    noFilteredRow.style.display = 'none';
+                }
             }
+        }
+
+        window.applyTaskFilters = filterTable;
+
+        // Auto-compatibility on card change: if selected category has 0 tasks under this card, reset category
+        if (cardFilter) {
+            cardFilter.addEventListener('change', function() {
+                var cVal = cardFilter.value.toLowerCase().trim();
+                var catVal = categoryFilter ? categoryFilter.value.toLowerCase().trim() : '';
+                if (cVal && catVal) {
+                    var hasCompat = false;
+                    tableRows.forEach(function(row) {
+                        var dCard = (row.getAttribute('data-card') || '').toLowerCase();
+                        var dCat = (row.getAttribute('data-category') || '').toLowerCase();
+                        if (dCard.includes(cVal) && dCat.includes(catVal)) {
+                            hasCompat = true;
+                        }
+                    });
+                    if (!hasCompat && categoryFilter) {
+                        categoryFilter.value = ''; // auto-reset category to show this card's tasks!
+                    }
+                }
+                filterTable();
+            });
+        }
+
+        // Auto-compatibility on category change: if selected card has 0 tasks under this category, reset card
+        if (categoryFilter) {
+            categoryFilter.addEventListener('change', function() {
+                var catVal = categoryFilter.value.toLowerCase().trim();
+                var cVal = cardFilter ? cardFilter.value.toLowerCase().trim() : '';
+                if (catVal && cVal) {
+                    var hasCompat = false;
+                    tableRows.forEach(function(row) {
+                        var dCard = (row.getAttribute('data-card') || '').toLowerCase();
+                        var dCat = (row.getAttribute('data-category') || '').toLowerCase();
+                        if (dCard.includes(cVal) && dCat.includes(catVal)) {
+                            hasCompat = true;
+                        }
+                    });
+                    if (!hasCompat && cardFilter) {
+                        cardFilter.value = ''; // auto-reset card to show this category's tasks!
+                    }
+                }
+                filterTable();
+            });
         }
 
         if (searchInput) searchInput.addEventListener('keyup', filterTable);
         if (timeFilter) timeFilter.addEventListener('change', filterTable);
-        if (cardFilter) cardFilter.addEventListener('change', filterTable);
-        if (categoryFilter) categoryFilter.addEventListener('change', filterTable);
     });
     </script>
 

@@ -33,6 +33,12 @@
                     alt="<?php echo htmlspecialchars($loggedUsername); ?>" />
             </a>
             <h2><?php echo htmlspecialchars($loggedUsername); ?> <span class="min-dtn"></span></h2>
+            <div style="margin-top: 5px;">
+                <span style="background:rgba(13,110,253,.18);border:1px solid rgba(13,110,253,.35);color:#60a5fa;border-radius:20px;padding:2px 10px;font-size:0.72rem;font-weight:600;display:inline-flex;align-items:center;gap:4px;">
+                    <i class="bi bi-credit-card-2-front-fill" style="font-size:.7rem;"></i>
+                    <?= htmlspecialchars($loggedCard ?? 'Diamond') ?> | <?= htmlspecialchars($loggedCategory ?? 'B') ?>
+                </span>
+            </div>
         </div>
         <div class="profile-social-dtl">
             <ul class="dtl-social">
@@ -58,7 +64,7 @@
                 <li>
                     <a href="adminTasks.php">
                         <i class="bi big-icon bi-card-checklist icon-wrap"></i>
-                        <span class="mini-click-non">Manage Tasks</span>
+                        <span class="mini-click-non"><?php echo in_array(strtolower(trim($loggedRole ?? '')), ['member', 'trainee']) ? 'My Tasks' : 'Manage Tasks'; ?></span>
                     </a>
                 </li>
                 <?php endif; ?>

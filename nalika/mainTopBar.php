@@ -139,9 +139,11 @@
                   <i class="bi bi-chevron-down" style="font-size: 12px"></i>
                 </a>
                 <ul class="dropdown-menu dropdown-menu-end nk-user-menu">
-                  <!-- <li>
-                    <a class="dropdown-item" href="signup.php"><i class="icon nalika-home me-2"></i>Register</a>
-                  </li> -->
+                  <li class="px-3 py-2 text-center" style="border-bottom: 1px solid rgba(255,255,255,0.08);">
+                    <span style="background:rgba(13,110,253,.18);border:1px solid rgba(13,110,253,.35);color:#60a5fa;border-radius:20px;padding:3px 10px;font-size:0.75rem;font-weight:600;display:inline-flex;align-items:center;gap:4px;">
+                        <i class="bi bi-credit-card-2-front-fill"></i> <?= htmlspecialchars($loggedCard ?? 'Diamond') ?> | <?= htmlspecialchars($loggedCategory ?? 'B') ?>
+                    </span>
+                  </li>
                   <li>
                     <a class="dropdown-item" href="userProfile.php"><i class="icon nalika-user me-2"></i>My Profile</a>
                   </li>

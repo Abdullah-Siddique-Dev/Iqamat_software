@@ -460,6 +460,48 @@ include "header.php";
     </div>
   </div>
 
+  <!-- User Profile & Card/Category Banner -->
+  <div class="container-fluid mt-3 mb-1">
+    <div style="background: linear-gradient(135deg, #1b2a47 0%, #152036 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
+      <div style="display:flex; align-items:center; gap: 14px; flex-wrap: wrap;">
+        <div style="position:relative;">
+          <?php
+          $dashProfilePic = (!empty($loggedImage) && file_exists($loggedImage))
+              ? htmlspecialchars($loggedImage)
+              : 'https://ui-avatars.com/api/?name='
+              . urlencode(($loggedFirstName ?? '') . '+' . ($loggedLastName ?? ''))
+              . '&background=03a9f4&color=fff&size=200';
+          ?>
+          <a href="userProfile.php">
+            <img src="<?= $dashProfilePic ?>" 
+                 style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 2.5px solid rgba(13,110,253,0.5); background: rgba(255,255,255,0.05);" alt="">
+          </a>
+          <span style="position:absolute; bottom:1px; right:1px; width:12px; height:12px; background:#00e396; border:2px solid #1b2a47; border-radius:50%;"></span>
+        </div>
+        <div>
+          <div style="color: #fff; font-size: 1.15rem; font-weight: 700; margin-bottom: 3px; line-height: 1.2;">
+            <a href="userProfile.php" style="color: #fff; text-decoration: none;">
+              <?= htmlspecialchars(trim(($loggedFirstName ?? '') . ' ' . ($loggedLastName ?? '')) ?: $loggedUsername) ?>
+            </a>
+          </div>
+          <div style="display:flex; align-items:center; gap: 8px; flex-wrap: wrap;">
+            <span style="background:rgba(100,116,139,.2); border:1px solid rgba(100,116,139,.35); color:#94a3b8; border-radius:20px; padding:2px 10px; font-size:0.75rem; font-weight:600; display:inline-flex; align-items:center; gap:5px;">
+              <i class="bi bi-shield-fill-check"></i> <?= htmlspecialchars(ucfirst($loggedRole ?? 'Member')) ?>
+            </span>
+            <span style="background:rgba(13,110,253,.18); border:1px solid rgba(13,110,253,.35); color:#60a5fa; border-radius:20px; padding:2px 12px; font-size:0.75rem; font-weight:600; display:inline-flex; align-items:center; gap:5px;">
+              <i class="bi bi-credit-card-2-front-fill"></i> <?= htmlspecialchars($loggedCard ?? 'Diamond') ?> | <?= htmlspecialchars($loggedCategory ?? 'B') ?>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div>
+        <a href="userProfile.php" class="btn btn-sm" style="background: rgba(13,110,253,0.18); color: #60a5fa; border: 1px solid rgba(13,110,253,0.35); border-radius: 8px; font-weight: 600; padding: 7px 16px; font-size: 0.82rem; display:inline-flex; align-items:center; gap:6px;">
+          <i class="bi bi-person-badge"></i> My Profile
+        </a>
+      </div>
+    </div>
+  </div>
+
   <!-- Row 1: Summary Cards -->
   <div class="container-fluid mt-4">
     <div class="row g-3">
