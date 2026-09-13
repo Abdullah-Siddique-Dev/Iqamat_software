@@ -7,7 +7,15 @@ while (ob_get_level()) {
 include "connection.php";
 include "auth.php";
 
-$filePath = $_GET['file'] ?? '';
+$rawFileParam = $_GET['file'] ?? '';
+$filePath = $rawFileParam;
+$decoded = json_decode($rawFileParam, true);
+if (is_array($decoded) && !empty($decoded)) {
+    $filePath = $decoded[0];
+} elseif (strpos($rawFileParam, ',') !== false) {
+    $parts = explode(',', $rawFileParam);
+    $filePath = trim($parts[0]);
+}
 
 if (empty($filePath)) {
     http_response_code(400);

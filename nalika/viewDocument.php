@@ -2,7 +2,15 @@
 include "connection.php";
 include "auth.php";
 
-$filePath = $_GET['file'] ?? '';
+$rawFileParam = $_GET['file'] ?? '';
+$filePath = $rawFileParam;
+$decoded = json_decode($rawFileParam, true);
+if (is_array($decoded) && !empty($decoded)) {
+    $filePath = $decoded[0];
+} elseif (strpos($rawFileParam, ',') !== false) {
+    $parts = explode(',', $rawFileParam);
+    $filePath = trim($parts[0]);
+}
 
 function resolveFilePath($filePath) {
     $cleanPath = ltrim(str_replace('\\', '/', $filePath), '/');

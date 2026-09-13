@@ -42,11 +42,109 @@ mysqli_query($conn, $createTableSql);
 @mysqli_query($conn, "ALTER TABLE `admin_tasks` ADD COLUMN `specifics` TEXT NULL AFTER `description`");
 @mysqli_query($conn, "ALTER TABLE `admin_tasks` ADD COLUMN `expiry_date` DATETIME NULL AFTER `specifics`");
 
-// Helper function to generate Task Code(s) (e.g. SB1, or multiple like SB1, DB1)
+// Unify comma-separated legacy codes into single ID format (e.g. 'SB8, SD9' -> 'SB8D9', 'GB6, SD5' -> 'GB6SD5')
+function unifyTaskCode($codeStr) {
+    if (empty($codeStr)) return '';
+    $clean = trim((string)$codeStr);
+    if (strpos($clean, ',') === false) {
+        return $clean;
+    }
+    $parts = array_filter(array_map('trim', explode(',', $clean)));
+    if (count($parts) <= 1) {
+        return implode('', $parts);
+    }
+    $unified = '';
+    $lastCard = '';
+    foreach ($parts as $p) {
+        if (strlen($p) >= 2) {
+            $c = strtoupper(substr($p, 0, 1));
+            $catAndNum = substr($p, 1);
+            if ($c === $lastCard) {
+                $unified .= $catAndNum; // omit repeating card letter under same card
+            } else {
+                $unified .= $p;
+                $lastCard = $c;
+            }
+        } else {
+            $unified .= $p;
+        }
+    }
+    return $unified;
+}
+
+// Parse a task ID code into component bars with corresponding card colors
+function parseTaskIdParts($taskCode, $rowCard = '', $rowCategory = '') {
+    $code = trim($taskCode ?? '');
+    if (empty($code)) {
+        return [['text' => 'TASK', 'card' => $rowCard ?: 'Diamond']];
+    }
+
+    $code = unifyTaskCode($code);
+
+    // Dynamic chunk matching: matches segments of [CardLetter?][CatLetter][Number]
+    // where Card is S, G, D, P and Category is A, B, C, D
+    if (preg_match_all('/([SGDP]?)([ABCD])(\d+)/i', $code, $matches, PREG_SET_ORDER)) {
+        $reconstructed = '';
+        foreach ($matches as $m) {
+            $reconstructed .= $m[0];
+        }
+        if (strcasecmp($reconstructed, $code) === 0) {
+            $parts = [];
+            $currentCard = !empty($rowCard) ? trim(explode(',', $rowCard)[0]) : 'Diamond';
+            foreach ($matches as $m) {
+                $cLetter = strtoupper($m[1]);
+                if (!empty($cLetter)) {
+                    if ($cLetter === 'S') $currentCard = 'Silver';
+                    else if ($cLetter === 'G') $currentCard = 'Gold';
+                    else if ($cLetter === 'D') $currentCard = 'Diamond';
+                    else if ($cLetter === 'P') $currentCard = 'Platinum';
+                }
+                $parts[] = [
+                    'text' => $m[0],
+                    'card' => $currentCard
+                ];
+            }
+            if (!empty($parts)) {
+                return $parts;
+            }
+        }
+    }
+
+    // Fallback for any other format (e.g. T1, CUSTOM):
+    $fallbackCard = !empty($rowCard) ? trim(explode(',', $rowCard)[0]) : 'Diamond';
+    return [
+        ['text' => $code, 'card' => $fallbackCard]
+    ];
+}
+
+function getCardColorClass($cardNameOrLetter) {
+    $c = strtoupper(substr(trim($cardNameOrLetter ?? ''), 0, 1));
+    switch ($c) {
+        case 'S': return 'bar-silver';
+        case 'G': return 'bar-gold';
+        case 'D': return 'bar-diamond';
+        case 'P': return 'bar-platinum';
+        default: return 'bar-default';
+    }
+}
+
+function renderTaskIdBadgeHtml($taskCode, $rowCard = '', $rowCategory = '') {
+    $parts = parseTaskIdParts($taskCode, $rowCard, $rowCategory);
+    $fullCode = htmlspecialchars(unifyTaskCode($taskCode));
+    $html = '<span class="task-id-badge" title="Task ID: ' . $fullCode . '">';
+    foreach ($parts as $p) {
+        $barClass = getCardColorClass($p['card']);
+        $html .= '<span class="id-bar ' . $barClass . '">' . htmlspecialchars($p['text']) . '</span>';
+    }
+    $html .= '</span>';
+    return $html;
+}
+
+// Helper function to generate unified single Task Code (e.g. SB2D1, GB6SD5, SB4)
 function generateTaskCode($conn, $card, $category, $specificMemberIds = null, $excludeTaskId = null) {
     $excludeSql = $excludeTaskId ? "AND id != " . intval($excludeTaskId) : "";
 
-    // If specific members are selected, generate code for EACH unique card+category combination
+    // If specific members are selected, group by card & category and generate a single unified ID
     if (!empty($specificMemberIds)) {
         if (is_array($specificMemberIds)) {
             $cleanIds = array_filter(array_map('intval', $specificMemberIds));
@@ -57,37 +155,58 @@ function generateTaskCode($conn, $card, $category, $specificMemberIds = null, $e
         if (!empty($cleanIds)) {
             $idStr = implode(',', $cleanIds);
             $uRes = mysqli_query($conn, "SELECT id, card, category FROM users WHERE id IN ($idStr)");
-            $prefixes = [];
+            $cardCatGroups = [];
             if ($uRes) {
                 while ($u = mysqli_fetch_assoc($uRes)) {
                     $uC = !empty($u['card']) ? trim($u['card']) : 'Diamond';
                     $uCat = !empty($u['category']) ? trim($u['category']) : 'B';
-                    $p = strtoupper(substr($uC, 0, 1)) . strtoupper(substr($uCat, 0, 1));
-                    $prefixes[$p] = true;
+                    $cLetter = strtoupper(substr($uC, 0, 1));
+                    $catLetter = strtoupper(substr($uCat, 0, 1));
+                    if (!isset($cardCatGroups[$cLetter])) {
+                        $cardCatGroups[$cLetter] = [];
+                    }
+                    $cardCatGroups[$cLetter][$catLetter] = true;
                 }
             }
 
-            if (!empty($prefixes)) {
-                $codes = [];
-                $sortedPrefixes = array_keys($prefixes);
-                sort($sortedPrefixes);
-                foreach ($sortedPrefixes as $p) {
-                    $cntRes = mysqli_query($conn, "SELECT task_code FROM admin_tasks WHERE task_code LIKE '%{$p}%' $excludeSql");
-                    $maxNum = 0;
-                    if ($cntRes) {
-                        while ($cRow = mysqli_fetch_assoc($cntRes)) {
-                            preg_match_all('/' . $p . '(\d+)/i', $cRow['task_code'] ?? '', $matches);
-                            if (!empty($matches[1])) {
-                                foreach ($matches[1] as $np) {
-                                    $numPart = intval($np);
-                                    if ($numPart > $maxNum) $maxNum = $numPart;
+            if (!empty($cardCatGroups)) {
+                $idParts = [];
+                ksort($cardCatGroups);
+                foreach ($cardCatGroups as $cLetter => $cats) {
+                    $catKeys = array_keys($cats);
+                    sort($catKeys);
+                    $firstCat = true;
+                    foreach ($catKeys as $catLetter) {
+                        $p = $cLetter . $catLetter;
+                        $cntRes = mysqli_query($conn, "SELECT task_code FROM admin_tasks WHERE (task_code LIKE '%{$p}%' OR task_code LIKE '%{$cLetter}%{$catLetter}%') $excludeSql");
+                        $maxNum = 0;
+                        if ($cntRes) {
+                            while ($cRow = mysqli_fetch_assoc($cntRes)) {
+                                $tc = $cRow['task_code'] ?? '';
+                                if (preg_match_all('/' . $p . '(\d+)/i', $tc, $m1)) {
+                                    foreach ($m1[1] as $np) {
+                                        $numPart = intval($np);
+                                        if ($numPart > $maxNum) $maxNum = $numPart;
+                                    }
+                                }
+                                if (preg_match_all('/' . $cLetter . '[A-Z0-9]*' . $catLetter . '(\d+)/i', $tc, $m2)) {
+                                    foreach ($m2[1] as $np) {
+                                        $numPart = intval($np);
+                                        if ($numPart > $maxNum) $maxNum = $numPart;
+                                    }
                                 }
                             }
                         }
+                        $nextNum = $maxNum + 1;
+                        if ($firstCat) {
+                            $idParts[] = $cLetter . $catLetter . $nextNum;
+                            $firstCat = false;
+                        } else {
+                            $idParts[] = $catLetter . $nextNum;
+                        }
                     }
-                    $codes[] = $p . ($maxNum + 1);
                 }
-                return implode(', ', $codes);
+                return implode('', $idParts);
             }
         }
     }
@@ -114,6 +233,18 @@ function generateTaskCode($conn, $card, $category, $specificMemberIds = null, $e
         }
     }
     return $prefix . ($maxNum + 1);
+}
+
+// Auto-migrate any legacy comma-separated task codes in admin_tasks to unified single ID format
+$legacyCodesRes = mysqli_query($conn, "SELECT id, task_code FROM admin_tasks WHERE task_code LIKE '%,%'");
+if ($legacyCodesRes && mysqli_num_rows($legacyCodesRes) > 0) {
+    while ($lcRow = mysqli_fetch_assoc($legacyCodesRes)) {
+        $newUnified = unifyTaskCode($lcRow['task_code']);
+        if ($newUnified !== $lcRow['task_code']) {
+            $eNewUnified = mysqli_real_escape_string($conn, $newUnified);
+            mysqli_query($conn, "UPDATE admin_tasks SET task_code = '$eNewUnified' WHERE id = " . intval($lcRow['id']));
+        }
+    }
 }
 
 // Backfill missing task_code and repair rows with missing cards / categories
@@ -212,9 +343,9 @@ if ($allTasksToRepair && mysqli_num_rows($allTasksToRepair) > 0) {
                 }
                 $finalCodes[] = $p . ($maxNum + 1);
             }
-            $finalCodeStr = implode(', ', $finalCodes);
+            $finalCodeStr = unifyTaskCode(implode(', ', $finalCodes));
         } else {
-            $finalCodeStr = implode(', ', $tCodes);
+            $finalCodeStr = unifyTaskCode(implode(', ', $tCodes));
         }
         
         if ($currCard !== $finalCardStr || $currCat !== $finalCatStr || ($r['task_code'] ?? '') !== $finalCodeStr) {
@@ -232,13 +363,30 @@ $createSubmissionsTableSql = "CREATE TABLE IF NOT EXISTS `user_task_submissions`
   `task_id` INT NOT NULL,
   `user_id` INT NOT NULL,
   `submission_notes` TEXT NULL,
-  `document_path` VARCHAR(255) NULL,
+  `document_path` TEXT NULL,
   `status` VARCHAR(50) DEFAULT 'Pending',
   `submitted_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `unique_user_task` (`task_id`, `user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
 mysqli_query($conn, $createSubmissionsTableSql);
+@mysqli_query($conn, "ALTER TABLE `user_task_submissions` MODIFY COLUMN `document_path` TEXT NULL");
+
+if (!function_exists('parseTaskDocuments')) {
+    function parseTaskDocuments($docData) {
+        if (empty($docData)) return [];
+        if (is_array($docData)) return array_values(array_filter($docData));
+        $decoded = json_decode($docData, true);
+        if (is_array($decoded)) {
+            return array_values(array_filter($decoded));
+        }
+        if (strpos($docData, ',') !== false) {
+            return array_values(array_filter(array_map('trim', explode(',', $docData))));
+        }
+        $trimmed = trim($docData);
+        return !empty($trimmed) ? [$trimmed] : [];
+    }
+}
 
 // Fetch all users for "Assign to Specific Member" list and map
 $allUsersList = [];
@@ -435,7 +583,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif (isset($_POST['action']) && $_POST['action'] === 'user_submit_task') {
         $taskId = intval($_POST['task_id']);
         $notes = mysqli_real_escape_string($conn, $_POST['submission_notes'] ?? '');
-        $docPath = "";
 
         // Verify task access permissions for regular members
         if (!$canManageTasks) {
@@ -449,26 +596,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        if (isset($_FILES['task_document']) && $_FILES['task_document']['error'] === UPLOAD_ERR_OK) {
-            $file = $_FILES['task_document'];
-            $fileExt = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-            $allowedExts = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'webp', 'txt'];
+        $uploadedPaths = [];
+        $allowedExts = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'txt', 'csv'];
+        $uploadDir = 'uploads/task_documents/';
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0755, true);
+        }
 
-            if (in_array($fileExt, $allowedExts)) {
-                $uploadDir = 'uploads/task_documents/';
-                if (!is_dir($uploadDir)) {
-                    mkdir($uploadDir, 0755, true);
-                }
-                $filename = 'task_' . $taskId . '_user_' . $loggedUserId . '_' . time() . '.' . $fileExt;
-                $destPath = $uploadDir . $filename;
+        // 1. Process multiple files: task_documents[]
+        if (isset($_FILES['task_documents']) && is_array($_FILES['task_documents']['name'])) {
+            $totalFiles = count($_FILES['task_documents']['name']);
+            for ($i = 0; $i < $totalFiles; $i++) {
+                if ($_FILES['task_documents']['error'][$i] === UPLOAD_ERR_OK) {
+                    $origName = $_FILES['task_documents']['name'][$i];
+                    $tmpName = $_FILES['task_documents']['tmp_name'][$i];
+                    $fileExt = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
 
-                if (move_uploaded_file($file['tmp_name'], $destPath)) {
-                    $docPath = $destPath;
+                    if (in_array($fileExt, $allowedExts)) {
+                        $uniqueSuffix = time() . '_' . $i . '_' . bin2hex(random_bytes(3));
+                        $filename = 'task_' . $taskId . '_user_' . $loggedUserId . '_' . $uniqueSuffix . '.' . $fileExt;
+                        $destPath = $uploadDir . $filename;
+                        if (move_uploaded_file($tmpName, $destPath)) {
+                            $uploadedPaths[] = $destPath;
+                        }
+                    }
                 }
             }
         }
 
-        // Insert or Update submission
+        // 2. Legacy single file fallback: task_document
+        if (isset($_FILES['task_document']) && !is_array($_FILES['task_document']['name']) && $_FILES['task_document']['error'] === UPLOAD_ERR_OK) {
+            $origName = $_FILES['task_document']['name'];
+            $tmpName = $_FILES['task_document']['tmp_name'];
+            $fileExt = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+
+            if (in_array($fileExt, $allowedExts)) {
+                $uniqueSuffix = time() . '_single_' . bin2hex(random_bytes(3));
+                $filename = 'task_' . $taskId . '_user_' . $loggedUserId . '_' . $uniqueSuffix . '.' . $fileExt;
+                $destPath = $uploadDir . $filename;
+                if (move_uploaded_file($tmpName, $destPath)) {
+                    $uploadedPaths[] = $destPath;
+                }
+            }
+        }
+
+        // Check existing submission
         $checkExisting = mysqli_query($conn, "SELECT document_path, status FROM user_task_submissions WHERE task_id = '$taskId' AND user_id = '$loggedUserId'");
         if ($checkExisting && mysqli_num_rows($checkExisting) > 0) {
             $existingRow = mysqli_fetch_assoc($checkExisting);
@@ -476,13 +648,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message = "This task has already been approved and cannot be modified.";
                 $messageType = "warning";
             } else {
-                if (empty($docPath)) {
-                    $docPath = $existingRow['document_path']; // preserve existing document if new file wasn't uploaded
+                $keptDocs = [];
+                if (isset($_POST['has_existing_docs_flag'])) {
+                    if (isset($_POST['kept_documents']) && is_array($_POST['kept_documents'])) {
+                        foreach ($_POST['kept_documents'] as $kd) {
+                            $cleanKd = trim($kd);
+                            if (!empty($cleanKd)) {
+                                $keptDocs[] = $cleanKd;
+                            }
+                        }
+                    }
+                } else {
+                    if (empty($uploadedPaths) && !empty($existingRow['document_path'])) {
+                        $keptDocs = parseTaskDocuments($existingRow['document_path']);
+                    }
                 }
-                $docSql = !empty($docPath) ? ", document_path = '$docPath'" : "";
-                $updateSubSql = "UPDATE user_task_submissions SET submission_notes = '$notes' $docSql, status = 'Pending', submitted_at = NOW() WHERE task_id = '$taskId' AND user_id = '$loggedUserId'";
+
+                $finalDocs = array_values(array_unique(array_merge($keptDocs, $uploadedPaths)));
+                $docPathValue = !empty($finalDocs) ? json_encode($finalDocs) : "";
+                $docPathEsc = mysqli_real_escape_string($conn, $docPathValue);
+
+                $updateSubSql = "UPDATE user_task_submissions SET submission_notes = '$notes', document_path = '$docPathEsc', status = 'Pending', submitted_at = NOW() WHERE task_id = '$taskId' AND user_id = '$loggedUserId'";
                 if (mysqli_query($conn, $updateSubSql)) {
-                    $message = "Task submission updated successfully! Pending admin approval.";
+                    $countMsg = count($finalDocs) > 0 ? " (" . count($finalDocs) . " file" . (count($finalDocs) > 1 ? "s" : "") . " attached)" : "";
+                    $message = "Task submission updated successfully!{$countMsg} Pending admin approval.";
                     $messageType = "success";
                 } else {
                     $message = "Error updating submission: " . mysqli_error($conn);
@@ -490,9 +679,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         } else {
-            $insertSubSql = "INSERT INTO user_task_submissions (task_id, user_id, submission_notes, document_path, status, submitted_at) VALUES ('$taskId', '$loggedUserId', '$notes', '$docPath', 'Pending', NOW())";
+            $finalDocs = array_values(array_unique($uploadedPaths));
+            $docPathValue = !empty($finalDocs) ? json_encode($finalDocs) : "";
+            $docPathEsc = mysqli_real_escape_string($conn, $docPathValue);
+
+            $insertSubSql = "INSERT INTO user_task_submissions (task_id, user_id, submission_notes, document_path, status, submitted_at) VALUES ('$taskId', '$loggedUserId', '$notes', '$docPathEsc', 'Pending', NOW())";
             if (mysqli_query($conn, $insertSubSql)) {
-                $message = "Task submitted successfully! Pending admin approval.";
+                $countMsg = count($finalDocs) > 0 ? " (" . count($finalDocs) . " file" . (count($finalDocs) > 1 ? "s" : "") . " attached)" : "";
+                $message = "Task submitted successfully!{$countMsg} Pending admin approval.";
                 $messageType = "success";
             } else {
                 $message = "Error submitting task: " . mysqli_error($conn);
@@ -665,6 +859,61 @@ if ($loggedUserId) {
 .text-created-by {
     color: #e2e8f0 !important;
     font-weight: 500;
+}
+
+/* ── Unified Single Task ID Badge ── */
+.task-id-badge {
+    display: inline-flex;
+    align-items: stretch;
+    border-radius: 6px;
+    overflow: hidden;
+    font-weight: 700;
+    font-size: 0.82rem;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    vertical-align: middle;
+    line-height: 1.25;
+    max-width: 100%;
+}
+
+.task-id-badge .id-bar {
+    padding: 4px 9px;
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.task-id-badge .id-bar + .id-bar {
+    border-left: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.task-id-badge .bar-silver {
+    background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+    color: #ffffff;
+}
+
+.task-id-badge .bar-gold {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%);
+    color: #ffffff;
+}
+
+.task-id-badge .bar-diamond {
+    background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 50%, #0369a1 100%);
+    color: #ffffff;
+}
+
+.task-id-badge .bar-platinum {
+    background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+    color: #ffffff;
+}
+
+.task-id-badge .bar-default {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    color: #ffffff;
 }
 
 .badge-card {
@@ -948,7 +1197,7 @@ if ($loggedUserId) {
                                             <?php while ($row = mysqli_fetch_assoc($tasksResult)): ?>
                                                 <?php 
                                                     $tId = $row['id'];
-                                                    $taskCode = htmlspecialchars($row['task_code'] ?? ('T' . $tId));
+                                                    $taskCode = htmlspecialchars(unifyTaskCode($row['task_code'] ?? ('T' . $tId)));
                                                     $taskDisplayName = htmlspecialchars(!empty($row['task_name']) ? $row['task_name'] : $row['description']);
                                                     $sub = $userSubmissions[$tId] ?? null;
                                                     $subStatus = $sub['status'] ?? 'Not Started';
@@ -1008,14 +1257,7 @@ if ($loggedUserId) {
                                                     data-card="<?php echo $dataCardAttr; ?>"
                                                     data-category="<?php echo $dataCatAttr; ?>">
                                                     <td>
-                                                        <?php
-                                                        $codes = array_filter(array_map('trim', explode(',', $row['task_code'] ?? '')));
-                                                        if (empty($codes)) $codes = ['T' . $tId];
-                                                        foreach ($codes as $cIdx => $cCode):
-                                                            $badgeBg = ($cIdx % 2 === 0) ? 'bg-primary' : 'bg-info text-dark';
-                                                        ?>
-                                                            <span class="badge <?php echo $badgeBg; ?> font-weight-bold me-1 mb-1" style="font-size:0.82rem; letter-spacing:0.5px;"><?php echo htmlspecialchars($cCode); ?></span>
-                                                        <?php endforeach; ?>
+                                                        <?php echo renderTaskIdBadgeHtml($row['task_code'] ?? ('T' . $tId), $row['card'] ?? '', $row['category'] ?? ''); ?>
                                                     </td>
                                                     <td>
                                                         <?php foreach ($rowCardsList as $cItem): ?>
@@ -1116,6 +1358,10 @@ if ($loggedUserId) {
                                                             </button>
                                                         <?php else: ?>
                                                             <!-- Member / Trainee Actions according to Submission Status -->
+                                                            <?php 
+                                                                $memberDocs = parseTaskDocuments($sub['document_path'] ?? '');
+                                                                $memberDocCount = count($memberDocs);
+                                                            ?>
                                                             <?php if ($subStatus === 'Approved'): ?>
                                                                 <button type="button" class="btn-user-submit"
                                                                     style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); border-color:#059669; color:#fff;"
@@ -1130,7 +1376,7 @@ if ($loggedUserId) {
                                                                     data-doc="<?php echo htmlspecialchars($sub['document_path'] ?? ''); ?>"
                                                                     data-status="Approved"
                                                                     onclick="openUserSubmitModal(this)">
-                                                                    <i class="bi bi-file-earmark-check"></i> View Document
+                                                                    <i class="bi bi-file-earmark-check"></i> View Document<?php echo $memberDocCount > 1 ? "s ({$memberDocCount})" : ($memberDocCount == 1 ? " (1)" : ""); ?>
                                                                 </button>
                                                             <?php elseif ($subStatus === 'Pending'): ?>
                                                                 <button type="button" class="btn-user-submit"
@@ -1146,7 +1392,7 @@ if ($loggedUserId) {
                                                                     data-doc="<?php echo htmlspecialchars($sub['document_path'] ?? ''); ?>"
                                                                     data-status="Pending"
                                                                     onclick="openUserSubmitModal(this)">
-                                                                    <i class="bi bi-pencil-square"></i> View / Edit Document
+                                                                    <i class="bi bi-pencil-square"></i> View / Edit Submission<?php echo $memberDocCount > 0 ? " ({$memberDocCount} File" . ($memberDocCount > 1 ? "s" : "") . ")" : ""; ?>
                                                                 </button>
                                                             <?php else: ?>
                                                                 <button type="button" class="btn-user-submit"
@@ -1162,7 +1408,7 @@ if ($loggedUserId) {
                                                                     data-doc=""
                                                                     data-status="Not Started"
                                                                     onclick="openUserSubmitModal(this)">
-                                                                    <i class="bi bi-upload"></i> Submit / Upload Document
+                                                                    <i class="bi bi-upload"></i> Submit / Upload Documents
                                                                 </button>
                                                             <?php endif; ?>
                                                         <?php endif; ?>
@@ -1447,7 +1693,7 @@ if ($loggedUserId) {
 
                     <div class="p-2 px-3 rounded mb-1" style="background:rgba(13, 110, 253, 0.12); border:1px solid rgba(13, 110, 253, 0.3);">
                         <small class="text-info d-block">
-                            <i class="bi bi-info-circle me-1"></i> If you click <strong>Proceed Anyway</strong>, multiple task IDs (<span id="warningPreviewIdsText" class="fw-bold text-white"></span>) will be generated and assigned so each member's card & category is covered.
+                            <i class="bi bi-info-circle me-1"></i> If you click <strong>Proceed Anyway</strong>, a single unified task ID (<span id="warningPreviewIdsText" class="fw-bold text-white"></span>) will be generated and assigned so each member's card &amp; category is covered.
                         </small>
                     </div>
                 </div>
@@ -1534,21 +1780,45 @@ if ($loggedUserId) {
                         <!-- Status Alert Banner -->
                         <div id="userStatusBanner" class="mb-3" style="display:none;"></div>
 
-                        <!-- Uploaded File Alert -->
-                        <div id="existingDocAlert" class="mb-3" style="display:none;">
-                            <div class="p-2 px-3 d-flex justify-content-between align-items-center" style="background:rgba(2,132,199,0.15); border:1px solid rgba(2,132,199,0.3); border-radius:6px;">
-                                <span class="small text-info"><i class="bi bi-file-earmark-check me-1"></i>Uploaded File:</span>
-                                <a id="existingDocLink" href="#" target="_blank" class="btn btn-sm btn-outline-info p-1 px-2 text-decoration-none small">
-                                    <i class="bi bi-eye"></i> View Document
-                                </a>
+                        <!-- Hidden flag so backend knows form has processed existing docs -->
+                        <input type="hidden" name="has_existing_docs_flag" value="1">
+
+                        <!-- Existing Attached Documents & Images List -->
+                        <div id="existingDocsSection" class="mb-3" style="display:none;">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="text-info small font-weight-bold mb-0">
+                                    <i class="bi bi-files me-1"></i>Attached Documents &amp; Images (<span id="existingDocsCount">0</span>)
+                                </label>
+                                <span id="existingDocsHint" class="text-muted small" style="font-size:0.75rem;">Click <i class="bi bi-trash text-danger"></i> to remove</span>
+                            </div>
+                            <div id="existingDocsList" class="d-flex flex-column gap-2" style="max-height:200px; overflow-y:auto; padding-right:2px;">
+                                <!-- Injected via JS -->
                             </div>
                         </div>
 
-                        <!-- Attach Document section (hidden when Approved) -->
+                        <!-- Attach Documents & Images section (hidden when Approved) -->
                         <div class="mb-3" id="docUploadGroup">
-                            <label class="form-label text-white small font-weight-bold mb-1" id="docUploadLabel">Attach Document (PDF, DOCX, Image)</label>
-                            <input type="file" name="task_document" id="user_task_document" class="form-control" style="background:#101726; border-color:#293647; color:#fff;" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.txt">
-                            <small class="text-muted" id="docUploadHelp">Upload your work file (PDF, DOCX, Image, Text).</small>
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label text-white small font-weight-bold mb-0" id="docUploadLabel">
+                                    <i class="bi bi-cloud-arrow-up text-info me-1"></i>Attach Documents &amp; Images
+                                </label>
+                                <span class="badge bg-secondary" style="font-size:0.68rem; letter-spacing:0.3px;">Multiple Allowed</span>
+                            </div>
+                            <input type="file" name="task_documents[]" id="user_task_document" class="form-control" style="background:#101726; border-color:#293647; color:#fff;" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.gif,.svg,.txt,.csv" multiple onchange="handleNewFilesSelected(this)">
+                            <small class="text-muted d-block mt-1" id="docUploadHelp">Upload images and documents (PDF, Word, Excel, JPG, PNG, WEBP, etc.). You can select multiple files at once.</small>
+
+                            <!-- Newly Selected Files Live Preview -->
+                            <div id="selectedFilesPreview" class="mt-2" style="display:none;">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="text-success small font-weight-bold">
+                                        <i class="bi bi-check2-circle me-1"></i>Selected Files (<span id="selectedFilesCount">0</span>):
+                                    </span>
+                                    <button type="button" class="btn btn-link btn-sm text-danger p-0 text-decoration-none small" onclick="clearSelectedFiles()">
+                                        <i class="bi bi-x-circle me-1"></i>Clear Selection
+                                    </button>
+                                </div>
+                                <div id="selectedFilesList" class="d-flex flex-column gap-1 p-2 rounded" style="background:#101726; border:1px dashed #293647; max-height:160px; overflow-y:auto;"></div>
+                            </div>
                         </div>
 
                         <!-- Notes section (readonly when Approved) -->
@@ -1559,7 +1829,7 @@ if ($loggedUserId) {
                     </div>
                     <div class="modal-footer" style="border-top:1px solid #293647;">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                        <button type="submit" id="userSubmitBtn" class="btn btn-info text-white font-weight-bold">Submit Document</button>
+                        <button type="submit" id="userSubmitBtn" class="btn btn-info text-white font-weight-bold">Submit Documents</button>
                     </div>
                 </form>
             </div>
@@ -1607,12 +1877,13 @@ if ($loggedUserId) {
 
         if (groupsList) {
             groupsList.innerHTML = '';
-            var previewCodes = [];
-
+            var cardGroups = {};
             Object.keys(groupMap).forEach(function(key) {
                 var g = groupMap[key];
-                var p = (g.card.charAt(0) + g.category.charAt(0)).toUpperCase();
-                previewCodes.push(p);
+                var cLetter = (g.card || 'Diamond').charAt(0).toUpperCase();
+                var catLetter = (g.category || 'B').charAt(0).toUpperCase();
+                if (!cardGroups[cLetter]) cardGroups[cLetter] = [];
+                if (!cardGroups[cLetter].includes(catLetter)) cardGroups[cLetter].push(catLetter);
 
                 var itemDiv = document.createElement('div');
                 itemDiv.className = 'p-2 rounded';
@@ -1633,8 +1904,22 @@ if ($loggedUserId) {
                 groupsList.appendChild(itemDiv);
             });
 
+            var unifiedPreviewParts = [];
+            Object.keys(cardGroups).sort().forEach(function(cLetter) {
+                var cats = cardGroups[cLetter].sort();
+                var first = true;
+                cats.forEach(function(cat) {
+                    if (first) {
+                        unifiedPreviewParts.push(cLetter + cat + '#');
+                        first = false;
+                    } else {
+                        unifiedPreviewParts.push(cat + '#');
+                    }
+                });
+            });
+
             if (previewIdsText) {
-                previewIdsText.textContent = previewCodes.join(', ');
+                previewIdsText.textContent = unifiedPreviewParts.join('');
             }
         }
 
@@ -1815,6 +2100,248 @@ if ($loggedUserId) {
         editModal.show();
     }
 
+    function escapeHtml(text) {
+        if (!text) return '';
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function parseTaskDocList(docStr) {
+        if (!docStr) return [];
+        if (Array.isArray(docStr)) return docStr.filter(Boolean);
+        var str = String(docStr).trim();
+        if (!str) return [];
+        try {
+            var parsed = JSON.parse(str);
+            if (Array.isArray(parsed)) return parsed.filter(Boolean);
+            if (typeof parsed === 'string' && parsed.trim()) return [parsed.trim()];
+        } catch(e) {}
+        if (str.indexOf(',') !== -1) {
+            return str.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+        }
+        return [str];
+    }
+
+    function getFileMeta(pathOrName) {
+        var name = (pathOrName || '').split('/').pop().split('\\').pop();
+        var ext = name.split('.').pop().toLowerCase();
+        var icon = 'bi-file-earmark-text text-info';
+        var badge = ext.toUpperCase() || 'FILE';
+        var isImg = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'].indexOf(ext) !== -1;
+        if (isImg) {
+            icon = 'bi-file-earmark-image text-warning';
+        } else if (ext === 'pdf') {
+            icon = 'bi-file-earmark-pdf text-danger';
+        } else if (['doc', 'docx'].indexOf(ext) !== -1) {
+            icon = 'bi-file-earmark-word text-primary';
+        } else if (['xls', 'xlsx', 'csv'].indexOf(ext) !== -1) {
+            icon = 'bi-file-earmark-excel text-success';
+        } else if (['ppt', 'pptx'].indexOf(ext) !== -1) {
+            icon = 'bi-file-earmark-ppt text-warning';
+        } else if (['zip', 'rar', '7z'].indexOf(ext) !== -1) {
+            icon = 'bi-file-earmark-zip text-secondary';
+        }
+        return { name: name, ext: ext, icon: icon, badge: badge, isImg: isImg };
+    }
+
+    function formatFileSize(bytes) {
+        if (!bytes || bytes === 0) return '0 B';
+        var k = 1024;
+        var sizes = ['B', 'KB', 'MB', 'GB'];
+        var i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    var currentExistingDocs = [];
+    var currentModalStatus = 'Not Started';
+
+    function renderExistingDocsList() {
+        var sec = document.getElementById('existingDocsSection');
+        var list = document.getElementById('existingDocsList');
+        var countSpan = document.getElementById('existingDocsCount');
+        var hint = document.getElementById('existingDocsHint');
+
+        if (!currentExistingDocs || currentExistingDocs.length === 0) {
+            if (sec) sec.style.display = 'none';
+            if (list) list.innerHTML = '';
+            if (countSpan) countSpan.textContent = '0';
+            return;
+        }
+
+        if (sec) sec.style.display = 'block';
+        if (countSpan) countSpan.textContent = currentExistingDocs.length;
+        if (hint) {
+            hint.style.display = (currentModalStatus === 'Approved') ? 'none' : 'inline';
+        }
+
+        var html = '';
+        currentExistingDocs.forEach(function(docPath, idx) {
+            var meta = getFileMeta(docPath);
+            var safePath = encodeURIComponent(docPath);
+            var removeBtn = (currentModalStatus !== 'Approved')
+                ? `<button type="button" class="btn btn-sm btn-outline-danger p-1 px-2 ms-2" onclick="removeExistingDoc(${idx})" title="Remove this file">
+                     <i class="bi bi-trash"></i>
+                   </button>`
+                : '';
+
+            html += `
+                <div class="p-2 px-3 d-flex justify-content-between align-items-center rounded" style="background:#101726; border:1px solid #293647;">
+                    <div class="d-flex align-items-center gap-2 text-truncate me-2" style="max-width:70%;">
+                        <i class="bi ${meta.icon} fs-5 flex-shrink-0"></i>
+                        <div class="text-truncate">
+                            <span class="text-white small font-weight-bold d-block text-truncate" title="${escapeHtml(meta.name)}">${escapeHtml(meta.name)}</span>
+                            <span class="badge bg-secondary" style="font-size:0.65rem;">${meta.badge}</span>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center flex-shrink-0">
+                        <a href="viewDocument.php?file=${safePath}" target="_blank" class="btn btn-sm btn-outline-info p-1 px-2 text-decoration-none small">
+                            <i class="bi bi-eye me-1"></i>View
+                        </a>
+                        ${removeBtn}
+                        <input type="hidden" name="kept_documents[]" value="${escapeHtml(docPath)}">
+                    </div>
+                </div>
+            `;
+        });
+        if (list) list.innerHTML = html;
+    }
+
+    function removeExistingDoc(index) {
+        if (index >= 0 && index < currentExistingDocs.length) {
+            currentExistingDocs.splice(index, 1);
+            renderExistingDocsList();
+        }
+    }
+
+    function handleNewFilesSelected(input) {
+        var preview = document.getElementById('selectedFilesPreview');
+        var list = document.getElementById('selectedFilesList');
+        var countSpan = document.getElementById('selectedFilesCount');
+
+        if (!input.files || input.files.length === 0) {
+            if (preview) preview.style.display = 'none';
+            if (list) list.innerHTML = '';
+            if (countSpan) countSpan.textContent = '0';
+            return;
+        }
+
+        if (preview) preview.style.display = 'block';
+        if (countSpan) countSpan.textContent = input.files.length;
+
+        var html = '';
+        for (var i = 0; i < input.files.length; i++) {
+            var f = input.files[i];
+            var meta = getFileMeta(f.name);
+            var sizeStr = formatFileSize(f.size);
+            html += `
+                <div class="d-flex align-items-center justify-content-between p-1 px-2 rounded" style="background:rgba(2,132,199,0.1); border:1px solid rgba(2,132,199,0.25);">
+                    <div class="d-flex align-items-center gap-2 text-truncate" style="max-width:78%;">
+                        <i class="bi ${meta.icon} small flex-shrink-0"></i>
+                        <span class="text-white small text-truncate" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
+                    </div>
+                    <span class="text-muted small ms-2 flex-shrink-0" style="font-size:0.75rem; white-space:nowrap;">${sizeStr}</span>
+                </div>
+            `;
+        }
+        if (list) list.innerHTML = html;
+    }
+
+    function clearSelectedFiles() {
+        var input = document.getElementById('user_task_document');
+        if (input) input.value = '';
+        var preview = document.getElementById('selectedFilesPreview');
+        if (preview) preview.style.display = 'none';
+        var list = document.getElementById('selectedFilesList');
+        if (list) list.innerHTML = '';
+    }
+
+    function getCardColorClassJs(card) {
+        if (!card) return 'bar-diamond';
+        var c = (card + '').toLowerCase().trim();
+        if (c === 'silver' || c === 's') return 'bar-silver';
+        if (c === 'gold' || c === 'g') return 'bar-gold';
+        if (c === 'diamond' || c === 'd') return 'bar-diamond';
+        if (c === 'platinum' || c === 'p') return 'bar-platinum';
+        return 'bar-default';
+    }
+
+    function unifyTaskCodeJs(codeStr) {
+        if (!codeStr) return '';
+        var clean = (codeStr + '').trim();
+        if (clean.indexOf(',') === -1) return clean;
+        var parts = clean.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+        if (parts.length <= 1) return parts.join('');
+        var unified = '';
+        var lastCard = '';
+        parts.forEach(function(p) {
+            if (p.length >= 2) {
+                var c = p.charAt(0).toUpperCase();
+                var catAndNum = p.substring(1);
+                if (c === lastCard) {
+                    unified += catAndNum;
+                } else {
+                    unified += p;
+                    lastCard = c;
+                }
+            } else {
+                unified += p;
+            }
+        });
+        return unified;
+    }
+
+    function parseTaskIdPartsJs(taskCode, rowCard) {
+        var code = (taskCode || '').trim();
+        if (!code) return [{ text: 'TASK', card: rowCard || 'Diamond' }];
+        code = unifyTaskCodeJs(code);
+
+        var re = /([SGDP]?)([ABCD])(\d+)/gi;
+        var match;
+        var matches = [];
+        var reconstructed = '';
+        while ((match = re.exec(code)) !== null) {
+            matches.push(match);
+            reconstructed += match[0];
+        }
+
+        if (matches.length > 0 && reconstructed.toUpperCase() === code.toUpperCase()) {
+            var currentCard = rowCard || 'Diamond';
+            var parts = [];
+            matches.forEach(function(m) {
+                var cLetter = m[1].toUpperCase();
+                if (cLetter === 'S') currentCard = 'Silver';
+                else if (cLetter === 'G') currentCard = 'Gold';
+                else if (cLetter === 'D') currentCard = 'Diamond';
+                else if (cLetter === 'P') currentCard = 'Platinum';
+
+                parts.push({
+                    text: m[0],
+                    card: currentCard
+                });
+            });
+            return parts;
+        }
+
+        return [{ text: code, card: rowCard || 'Diamond' }];
+    }
+
+    function renderTaskIdBadgeJs(taskCode, rowCard) {
+        if (!taskCode) return '';
+        var parts = parseTaskIdPartsJs(taskCode, rowCard);
+        var fullCode = escapeHtml(unifyTaskCodeJs(taskCode));
+        var html = '<span class="task-id-badge me-2" title="Task ID: ' + fullCode + '">';
+        parts.forEach(function(p) {
+            var barClass = getCardColorClassJs(p.card);
+            html += '<span class="id-bar ' + barClass + '">' + escapeHtml(p.text) + '</span>';
+        });
+        html += '</span>';
+        return html;
+    }
+
     function openUserSubmitModal(btn) {
         var id = btn.getAttribute('data-id');
         var taskCode = btn.getAttribute('data-task-code');
@@ -1827,9 +2354,10 @@ if ($loggedUserId) {
         var doc = btn.getAttribute('data-doc');
         var status = btn.getAttribute('data-status') || 'Not Started';
 
+        currentModalStatus = status;
         document.getElementById('user_task_id').value = id;
         
-        var headerHtml = (taskCode ? '<span class="badge bg-primary me-2">' + taskCode + '</span>' : '') + '<span class="text-info font-weight-bold">' + (taskName || desc) + '</span>';
+        var headerHtml = (taskCode ? renderTaskIdBadgeJs(taskCode) : '') + '<span class="text-info font-weight-bold">' + escapeHtml(taskName || desc) + '</span>';
         if (desc && desc !== taskName) {
             headerHtml += '<div class="text-white mt-1 small font-weight-normal">' + desc + '</div>';
         }
@@ -1853,22 +2381,19 @@ if ($loggedUserId) {
         var notesField = document.getElementById('user_submission_notes');
         notesField.value = notes || '';
 
-        var alertBox = document.getElementById('existingDocAlert');
-        var docLink = document.getElementById('existingDocLink');
+        // Reset file selection & preview
+        clearSelectedFiles();
+
+        // Parse and render existing attached documents
+        currentExistingDocs = parseTaskDocList(doc);
+        renderExistingDocsList();
+
         var statusBanner = document.getElementById('userStatusBanner');
         var docUploadGroup = document.getElementById('docUploadGroup');
         var userSubmitBtn = document.getElementById('userSubmitBtn');
         var headerIcon = document.getElementById('userModalHeaderIcon');
         var headerTitle = document.getElementById('userModalHeaderTitle');
         var docUploadHelp = document.getElementById('docUploadHelp');
-
-        if (doc && doc.trim() !== '') {
-            alertBox.style.display = 'block';
-            docLink.href = 'viewDocument.php?file=' + encodeURIComponent(doc);
-        } else {
-            alertBox.style.display = 'none';
-            docLink.href = '#';
-        }
 
         if (status === 'Approved') {
             // Case 3: APPROVED - User can ONLY VIEW
@@ -1885,9 +2410,9 @@ if ($loggedUserId) {
             headerIcon.className = 'bi bi-pencil-square text-warning me-2';
             headerTitle.textContent = 'View / Edit Task Submission';
             statusBanner.style.display = 'block';
-            statusBanner.innerHTML = '<div class="p-2 px-3" style="background:rgba(234,179,8,0.15); border:1px solid rgba(234,179,8,0.3); border-radius:6px; color:#fbbf24; font-size:0.85rem;"><i class="bi bi-hourglass-split me-2"></i><strong>Pending Approval.</strong> You can edit your notes or upload a new file below.</div>';
+            statusBanner.innerHTML = '<div class="p-2 px-3" style="background:rgba(234,179,8,0.15); border:1px solid rgba(234,179,8,0.3); border-radius:6px; color:#fbbf24; font-size:0.85rem;"><i class="bi bi-hourglass-split me-2"></i><strong>Pending Approval.</strong> You can edit notes, remove attached files, or upload additional documents/images below.</div>';
             docUploadGroup.style.display = 'block';
-            docUploadHelp.textContent = doc ? 'Upload a new file to replace existing document, or leave blank to keep current file.' : 'Attach your document (PDF, DOCX, Image)';
+            docUploadHelp.textContent = currentExistingDocs.length > 0 ? 'Select additional files to add to your submission.' : 'Attach documents and images (PDF, DOCX, Images, etc.).';
             notesField.readOnly = false;
             notesField.style.background = '#101726';
             userSubmitBtn.style.display = 'inline-block';
@@ -1896,16 +2421,16 @@ if ($loggedUserId) {
         } else {
             // Case 1: NOT SUBMITTED - User can SUBMIT / UPLOAD
             headerIcon.className = 'bi bi-upload text-info me-2';
-            headerTitle.textContent = 'Submit Task / Document';
+            headerTitle.textContent = 'Submit Task / Documents';
             statusBanner.style.display = 'none';
             statusBanner.innerHTML = '';
             docUploadGroup.style.display = 'block';
-            docUploadHelp.textContent = 'Upload your work file (PDF, DOCX, Image, Text).';
+            docUploadHelp.textContent = 'Upload work files and images (PDF, Word, Excel, JPG, PNG, WEBP, Text). You can select multiple files.';
             notesField.readOnly = false;
             notesField.style.background = '#101726';
             userSubmitBtn.style.display = 'inline-block';
             userSubmitBtn.className = 'btn btn-primary font-weight-bold';
-            userSubmitBtn.textContent = 'Submit Document';
+            userSubmitBtn.textContent = 'Submit Documents';
         }
 
         var submitModal = new bootstrap.Modal(document.getElementById('userSubmitModal'));
@@ -1940,7 +2465,7 @@ if ($loggedUserId) {
         var countInfo = document.getElementById('adminSubmissionsCountInfo');
         if (countInfo) countInfo.textContent = '';
 
-        var titleStr = (taskCode ? '<strong class="text-info me-2">[' + taskCode + ']</strong>' : '') + '<strong>' + (taskName || desc) + '</strong>';
+        var titleStr = (taskCode ? renderTaskIdBadgeJs(taskCode) : '') + '<strong>' + escapeHtml(taskName || desc) + '</strong>';
         if (desc && desc !== taskName) {
             titleStr += ' — ' + desc;
         }
@@ -1966,9 +2491,21 @@ if ($loggedUserId) {
                 }
 
                 data.forEach((sub, idx) => {
-                    var docCell = sub.document_path 
-                        ? `<a href="viewDocument.php?file=${encodeURIComponent(sub.document_path)}" target="_blank" class="btn btn-sm btn-outline-info p-1 px-2 text-decoration-none"><i class="bi bi-eye me-1"></i>View Document</a>`
-                        : '<span class="text-muted">No File</span>';
+                    var docs = parseTaskDocList(sub.document_path);
+                    var docCell = '';
+                    if (docs.length === 0) {
+                        docCell = '<span class="text-muted small">No Files</span>';
+                    } else if (docs.length === 1) {
+                        var meta = getFileMeta(docs[0]);
+                        docCell = `<a href="viewDocument.php?file=${encodeURIComponent(docs[0])}" target="_blank" class="btn btn-sm btn-outline-info p-1 px-2 text-decoration-none small" title="${escapeHtml(meta.name)}"><i class="bi ${meta.icon} me-1"></i>View <span class="badge bg-secondary" style="font-size:0.65rem;">${meta.badge}</span></a>`;
+                    } else {
+                        docCell = `<div class="d-flex flex-wrap gap-1 align-items-center">`;
+                        docs.forEach(function(d, dIdx) {
+                            var meta = getFileMeta(d);
+                            docCell += `<a href="viewDocument.php?file=${encodeURIComponent(d)}" target="_blank" class="btn btn-sm btn-outline-info p-1 px-2 text-decoration-none small" style="font-size:0.75rem;" title="${escapeHtml(meta.name)}"><i class="bi ${meta.icon} me-1"></i>Doc ${dIdx + 1} <span class="badge bg-secondary" style="font-size:0.62rem;">${meta.badge}</span></a>`;
+                        });
+                        docCell += `</div>`;
+                    }
 
                     var statusSelect = `
                         <select class="form-select form-select-sm submission-status-select" data-sub-id="${sub.id}" style="background:#101726; color:#fff; border-color:#293647; width:125px;">
@@ -1983,12 +2520,12 @@ if ($loggedUserId) {
                     var tr = document.createElement('tr');
                     tr.innerHTML = `
                         <td>${idx + 1}</td>
-                        <td class="font-weight-bold text-white">${sub.firstName} ${sub.lastName} ${lateBadge}</td>
-                        <td>${sub.area || '-'}</td>
+                        <td class="font-weight-bold text-white">${escapeHtml(sub.firstName)} ${escapeHtml(sub.lastName)} ${lateBadge}</td>
+                        <td>${escapeHtml(sub.area || '-')}</td>
                         <td>${docCell}</td>
-                        <td>${sub.submission_notes || '-'}</td>
+                        <td>${escapeHtml(sub.submission_notes || '-')}</td>
                         <td>${statusSelect}</td>
-                        <td class="text-muted small">${sub.submitted_at}</td>
+                        <td class="text-muted small">${escapeHtml(sub.submitted_at)}</td>
                     `;
                     tableBody.appendChild(tr);
                 });
@@ -2207,6 +2744,7 @@ if ($loggedUserId) {
 
         function filterTable() {
             var searchVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
+            var cleanSearchVal = searchVal.replace(/\s+/g, '');
             var timeVal = timeFilter ? timeFilter.value.toLowerCase().trim() : '';
             var cardVal = cardFilter ? cardFilter.value.toLowerCase().trim() : '';
             var catVal = categoryFilter ? categoryFilter.value.toLowerCase().trim() : '';
@@ -2216,6 +2754,7 @@ if ($loggedUserId) {
             tableRows.forEach(function (row) {
                 var name = row.querySelector('.task-name-cell') ? row.querySelector('.task-name-cell').textContent.toLowerCase() : '';
                 var desc = row.querySelector('.task-desc-cell') ? row.querySelector('.task-desc-cell').textContent.toLowerCase() : '';
+                var taskCodeBadge = row.querySelector('.task-id-badge') ? row.querySelector('.task-id-badge').textContent.toLowerCase().replace(/\s+/g, '') : '';
                 
                 // Collect row cards from data-card attribute AND badge-card texts
                 var dataCard = (row.getAttribute('data-card') || '').toLowerCase();
@@ -2230,7 +2769,7 @@ if ($loggedUserId) {
                 var expDate = row.getAttribute('data-expiry-date') || '';
                 var crtDate = row.getAttribute('data-created-date') || '';
 
-                var matchesSearch = !searchVal || desc.includes(searchVal) || name.includes(searchVal);
+                var matchesSearch = !searchVal || desc.includes(searchVal) || name.includes(searchVal) || (cleanSearchVal && taskCodeBadge.includes(cleanSearchVal));
                 
                 // Card filter match (handles single or multi-card tasks like Silver, Diamond)
                 var matchesCard = !cardVal || allRowCards.some(function(c) {
