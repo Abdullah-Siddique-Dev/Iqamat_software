@@ -447,6 +447,7 @@ if ($usersResult) {
                                             <option value="Diamond">Diamond</option>
                                             <option value="Gold">Gold</option>
                                             <option value="Silver">Silver</option>
+                                            <option value="Metal">Metal</option>
                                         </select>
                                     </div>
                                     <div>

@@ -34,6 +34,7 @@ $createTableSql = "CREATE TABLE IF NOT EXISTS `admin_tasks` (
 mysqli_query($conn, $createTableSql);
 
 // Ensure columns have enough capacity for multiple codes, cards, categories, and members
+@mysqli_query($conn, "ALTER TABLE `users` MODIFY COLUMN `card` VARCHAR(50) DEFAULT 'Diamond'");
 @mysqli_query($conn, "ALTER TABLE `admin_tasks` MODIFY COLUMN `task_code` VARCHAR(255) NULL");
 @mysqli_query($conn, "ALTER TABLE `admin_tasks` MODIFY COLUMN `card` VARCHAR(255) NULL");
 @mysqli_query($conn, "ALTER TABLE `admin_tasks` MODIFY COLUMN `category` VARCHAR(255) NULL");
@@ -98,6 +99,7 @@ function parseTaskIdParts($taskCode, $rowCard = '', $rowCategory = '') {
                     else if ($cLetter === 'G') $currentCard = 'Gold';
                     else if ($cLetter === 'D') $currentCard = 'Diamond';
                     else if ($cLetter === 'P') $currentCard = 'Platinum';
+                    else if ($cLetter === 'M') $currentCard = 'Metal';
                 }
                 $parts[] = [
                     'text' => $m[0],
@@ -124,6 +126,7 @@ function getCardColorClass($cardNameOrLetter) {
         case 'G': return 'bar-gold';
         case 'D': return 'bar-diamond';
         case 'P': return 'bar-platinum';
+        case 'M': return 'bar-metal';
         default: return 'bar-default';
     }
 }
@@ -300,7 +303,7 @@ if ($allTasksToRepair && mysqli_num_rows($allTasksToRepair) > 0) {
             if (strlen($tc) >= 2) {
                 $cLetter = strtoupper(substr($tc, 0, 1));
                 $catLetter = strtoupper(substr($tc, 1, 1));
-                $decodedCard = ($cLetter === 'D') ? 'Diamond' : (($cLetter === 'G') ? 'Gold' : (($cLetter === 'S') ? 'Silver' : null));
+                $decodedCard = ($cLetter === 'D') ? 'Diamond' : (($cLetter === 'G') ? 'Gold' : (($cLetter === 'S') ? 'Silver' : (($cLetter === 'M') ? 'Metal' : null)));
                 if ($decodedCard) $resolvedCards[$decodedCard] = true;
                 if (in_array($catLetter, ['A', 'B', 'C', 'D'])) $resolvedCats[$catLetter] = true;
             }
@@ -469,7 +472,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($taskName)) $taskName = $description;
         if (empty($description)) $description = $taskName;
 
-        $rawExpiry = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : null;
+        $rawExpiry = !empty($_POST['expiry_date']) ? trim($_POST['expiry_date']) : null;
+        if ($rawExpiry && preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawExpiry)) {
+            $rawExpiry .= ' 23:59:00';
+        }
         $expiryDateSql = $rawExpiry ? "'" . mysqli_real_escape_string($conn, date('Y-m-d H:i:s', strtotime($rawExpiry))) . "'" : "NULL";
         $createdBy = !empty($loggedFirstName) ? htmlspecialchars($loggedFirstName . ' ' . $loggedLastName) : 'admin admin';
 
@@ -546,7 +552,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($taskName)) $taskName = $description;
         if (empty($description)) $description = $taskName;
 
-        $rawExpiry = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : null;
+        $rawExpiry = !empty($_POST['expiry_date']) ? trim($_POST['expiry_date']) : null;
+        if ($rawExpiry && preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawExpiry)) {
+            $rawExpiry .= ' 23:59:00';
+        }
         $expiryDateSql = $rawExpiry ? "'" . mysqli_real_escape_string($conn, date('Y-m-d H:i:s', strtotime($rawExpiry))) . "'" : "NULL";
 
         if (empty($_POST['expiry_date'])) {
@@ -911,6 +920,11 @@ if ($loggedUserId) {
     color: #ffffff;
 }
 
+.task-id-badge .bar-metal {
+    background: linear-gradient(135deg, #52525b 0%, #3f3f46 50%, #27272a 100%);
+    color: #ffffff;
+}
+
 .task-id-badge .bar-default {
     background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
     color: #ffffff;
@@ -924,6 +938,23 @@ if ($loggedUserId) {
     border-radius: 6px;
     font-size: 0.78rem;
     font-weight: 600;
+}
+
+.member-check-item {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.member-check-item:hover {
+    background: #1e293b !important;
+}
+
+.member-check-item.hidden-member,
+.member-check-item.d-none,
+.member-check-item[style*="display: none"] {
+    display: none !important;
 }
 
 .badge-category {
@@ -1143,6 +1174,7 @@ if ($loggedUserId) {
                                             <option value="Diamond">Diamond</option>
                                             <option value="Gold">Gold</option>
                                             <option value="Silver">Silver</option>
+                                            <option value="Metal">Metal</option>
                                         </select>
                                     </div>
                                     <div>
@@ -1233,7 +1265,7 @@ if ($loggedUserId) {
                                                     if (empty($rowCardsList) && !empty($row['task_code'])) {
                                                         foreach (explode(',', $row['task_code']) as $tc) {
                                                             $cl = strtoupper(substr(trim($tc), 0, 1));
-                                                            $decC = ($cl === 'D') ? 'Diamond' : (($cl === 'G') ? 'Gold' : (($cl === 'S') ? 'Silver' : null));
+                                                            $decC = ($cl === 'D') ? 'Diamond' : (($cl === 'G') ? 'Gold' : (($cl === 'S') ? 'Silver' : (($cl === 'M') ? 'Metal' : null)));
                                                             if ($decC && !in_array($decC, $rowCardsList)) $rowCardsList[] = $decC;
                                                         }
                                                     }
@@ -1476,6 +1508,7 @@ if ($loggedUserId) {
                                     <option value="Diamond">Diamond</option>
                                     <option value="Gold">Gold</option>
                                     <option value="Silver">Silver</option>
+                                    <option value="Metal">Metal</option>
                                 </select>
                             </div>
                             <div class="col-6 mb-3">
@@ -1498,19 +1531,26 @@ if ($loggedUserId) {
                             
                             <div class="input-group input-group-sm mb-2 mt-1">
                                 <span class="input-group-text" style="background:#101726; border-color:#293647; color:#6c7a8d;"><i class="bi bi-search"></i></span>
-                                <input type="text" class="form-control" id="add_member_search" placeholder="Filter members..." style="background:#101726; border-color:#293647; color:#fff;" onkeyup="filterMemberList('add')">
-                                <button class="btn btn-outline-secondary btn-sm text-white" type="button" onclick="selectAllMembers('add', true)">All</button>
-                                <button class="btn btn-outline-secondary btn-sm text-white" type="button" onclick="selectAllMembers('add', false)">Clear</button>
+                                <input type="text" class="form-control" id="add_member_search" placeholder="Type name to search (e.g. Ali)..." style="background:#101726; border-color:#293647; color:#fff;" oninput="filterMemberList('add')" onkeyup="filterMemberList('add')">
+                                <button class="btn btn-outline-danger btn-sm" type="button" id="add_member_search_clear" onclick="clearMemberSearch('add')" title="Clear search" style="display:none;"><i class="bi bi-x-lg"></i></button>
+                                <button class="btn btn-outline-secondary btn-sm text-white" type="button" onclick="selectAllMembers('add', true)" title="Select all visible">All</button>
+                                <button class="btn btn-outline-secondary btn-sm text-white" type="button" onclick="selectAllMembers('add', false)" title="Deselect all visible">Clear</button>
                             </div>
 
                             <div class="member-checkbox-list" id="add_member_list" style="max-height: 190px; overflow-y: auto; background:#101726; border: 1px solid #293647; border-radius: 8px; padding: 6px 8px;">
-                                <?php foreach ($allUsersList as $u): 
+                                <?php foreach ($allUsersList as $mIdx => $u): 
                                     $uCard = !empty($u['card']) ? $u['card'] : 'Diamond';
                                     $uCat = !empty($u['category']) ? $u['category'] : 'B';
-                                    $nameWithCardCat = htmlspecialchars($u['firstName'] . ' ' . $u['lastName']) . ' (' . htmlspecialchars($uCard . ' ' . $uCat) . ')';
                                     $rawFullName = trim($u['firstName'] . ' ' . $u['lastName']);
+                                    $nameWithCardCat = htmlspecialchars($rawFullName) . ' (' . htmlspecialchars($uCard . ' ' . $uCat) . ')';
+                                    $uUsername = $u['username'] ?? '';
                                 ?>
-                                    <label class="member-check-item d-flex align-items-center p-2 mb-1 rounded" style="cursor:pointer;">
+                                    <label class="member-check-item align-items-center p-2 mb-1 rounded" style="cursor:pointer;"
+                                        data-index="<?php echo $mIdx; ?>"
+                                        data-fullname="<?php echo htmlspecialchars(strtolower($rawFullName)); ?>"
+                                        data-username="<?php echo htmlspecialchars(strtolower($uUsername)); ?>"
+                                        data-card="<?php echo htmlspecialchars(strtolower($uCard)); ?>"
+                                        data-category="<?php echo htmlspecialchars(strtolower($uCat)); ?>">
                                         <input type="checkbox" name="specific_member_ids[]" value="<?php echo $u['id']; ?>" class="form-check-input member-circle-check me-2" data-card="<?php echo htmlspecialchars($uCard); ?>" data-category="<?php echo htmlspecialchars($uCat); ?>" data-name="<?php echo htmlspecialchars($rawFullName); ?>" onchange="updateSelectedCount('add')">
                                         <div class="d-flex flex-column" style="line-height:1.2;">
                                             <span class="text-white small font-weight-bold member-name-txt"><?php echo $nameWithCardCat; ?></span>
@@ -1537,9 +1577,20 @@ if ($loggedUserId) {
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label text-white small font-weight-bold mb-1">Expiry Date & Time <span style="color:#dc3545;">*</span></label>
-                            <input type="datetime-local" name="expiry_date" class="form-control" style="background:#101726; border-color:#293647; color:#fff;" required>
-                            <small class="text-muted d-block mt-1">Set when this task expires. Submissions past this date will be tagged as Late.</small>
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label text-white small font-weight-bold mb-0">Expiry Date & Time <span style="color:#dc3545;">*</span></label>
+                                <span class="badge" style="background:rgba(14,165,233,0.15); color:#38bdf8; border:1px solid rgba(14,165,233,0.3); font-size:0.72rem;"><i class="bi bi-clock me-1"></i>Default: 11:59 PM</span>
+                            </div>
+                            <input type="datetime-local" name="expiry_date" id="add_expiry_date" class="form-control" style="background:#101726; border-color:#293647; color:#fff;" value="<?php echo date('Y-m-d\T23:59'); ?>" required>
+                            <div class="d-flex flex-wrap gap-1 mt-2 align-items-center">
+                                <span class="text-muted small me-1" style="font-size:0.75rem;">Presets (11:59 PM):</span>
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem; border-color:#334155; color:#cbd5e1;" onclick="setExpiryPreset('add', 'today')">Today</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem; border-color:#334155; color:#cbd5e1;" onclick="setExpiryPreset('add', 'tomorrow')">Tomorrow</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem; border-color:#334155; color:#cbd5e1;" onclick="setExpiryPreset('add', '3days')">+3 Days</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem; border-color:#334155; color:#cbd5e1;" onclick="setExpiryPreset('add', 'endofweek')">End of Week</button>
+                                <button type="button" class="btn btn-sm btn-outline-info py-0 px-2" style="font-size:0.75rem;" onclick="setExpiryTime1159('add')" title="Set time to 11:59 PM"><i class="bi bi-clock me-1"></i>11:59 PM</button>
+                            </div>
+                            <small class="text-muted d-block mt-1">Set when this task expires (time always defaults to 11:59 PM). Submissions past this date will be tagged as Late.</small>
                         </div>
                     </div>
                     <div class="modal-footer" style="border-top:1px solid #293647;">
@@ -1587,6 +1638,7 @@ if ($loggedUserId) {
                                     <option value="Diamond">Diamond</option>
                                     <option value="Gold">Gold</option>
                                     <option value="Silver">Silver</option>
+                                    <option value="Metal">Metal</option>
                                 </select>
                             </div>
                             <div class="col-6 mb-3">
@@ -1609,19 +1661,26 @@ if ($loggedUserId) {
                             
                             <div class="input-group input-group-sm mb-2 mt-1">
                                 <span class="input-group-text" style="background:#101726; border-color:#293647; color:#6c7a8d;"><i class="bi bi-search"></i></span>
-                                <input type="text" class="form-control" id="edit_member_search" placeholder="Search members..." style="background:#101726; border-color:#293647; color:#fff;" onkeyup="filterMemberList('edit')">
-                                <button class="btn btn-outline-secondary btn-sm text-white" type="button" onclick="selectAllMembers('edit', true)">All</button>
-                                <button class="btn btn-outline-secondary btn-sm text-white" type="button" onclick="selectAllMembers('edit', false)">Clear</button>
+                                <input type="text" class="form-control" id="edit_member_search" placeholder="Type name to search (e.g. Ali)..." style="background:#101726; border-color:#293647; color:#fff;" oninput="filterMemberList('edit')" onkeyup="filterMemberList('edit')">
+                                <button class="btn btn-outline-danger btn-sm" type="button" id="edit_member_search_clear" onclick="clearMemberSearch('edit')" title="Clear search" style="display:none;"><i class="bi bi-x-lg"></i></button>
+                                <button class="btn btn-outline-secondary btn-sm text-white" type="button" onclick="selectAllMembers('edit', true)" title="Select all visible">All</button>
+                                <button class="btn btn-outline-secondary btn-sm text-white" type="button" onclick="selectAllMembers('edit', false)" title="Deselect all visible">Clear</button>
                             </div>
 
                             <div class="member-checkbox-list" id="edit_member_list" style="max-height: 190px; overflow-y: auto; background:#101726; border: 1px solid #293647; border-radius: 8px; padding: 6px 8px;">
-                                <?php foreach ($allUsersList as $u): 
+                                <?php foreach ($allUsersList as $mIdx => $u): 
                                     $uCard = !empty($u['card']) ? $u['card'] : 'Diamond';
                                     $uCat = !empty($u['category']) ? $u['category'] : 'B';
-                                    $nameWithCardCat = htmlspecialchars($u['firstName'] . ' ' . $u['lastName']) . ' (' . htmlspecialchars($uCard . ' ' . $uCat) . ')';
                                     $rawFullName = trim($u['firstName'] . ' ' . $u['lastName']);
+                                    $nameWithCardCat = htmlspecialchars($rawFullName) . ' (' . htmlspecialchars($uCard . ' ' . $uCat) . ')';
+                                    $uUsername = $u['username'] ?? '';
                                 ?>
-                                    <label class="member-check-item d-flex align-items-center p-2 mb-1 rounded" style="cursor:pointer;">
+                                    <label class="member-check-item align-items-center p-2 mb-1 rounded" style="cursor:pointer;"
+                                        data-index="<?php echo $mIdx; ?>"
+                                        data-fullname="<?php echo htmlspecialchars(strtolower($rawFullName)); ?>"
+                                        data-username="<?php echo htmlspecialchars(strtolower($uUsername)); ?>"
+                                        data-card="<?php echo htmlspecialchars(strtolower($uCard)); ?>"
+                                        data-category="<?php echo htmlspecialchars(strtolower($uCat)); ?>">
                                         <input type="checkbox" name="specific_member_ids[]" value="<?php echo $u['id']; ?>" class="form-check-input member-circle-check me-2" data-card="<?php echo htmlspecialchars($uCard); ?>" data-category="<?php echo htmlspecialchars($uCat); ?>" data-name="<?php echo htmlspecialchars($rawFullName); ?>" onchange="updateSelectedCount('edit')">
                                         <div class="d-flex flex-column" style="line-height:1.2;">
                                             <span class="text-white small font-weight-bold member-name-txt"><?php echo $nameWithCardCat; ?></span>
@@ -1648,8 +1707,18 @@ if ($loggedUserId) {
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label text-white small font-weight-bold mb-1">Expiry Date & Time <span style="color:#dc3545;">*</span></label>
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label text-white small font-weight-bold mb-0">Expiry Date & Time <span style="color:#dc3545;">*</span></label>
+                                <span class="badge" style="background:rgba(14,165,233,0.15); color:#38bdf8; border:1px solid rgba(14,165,233,0.3); font-size:0.72rem;"><i class="bi bi-clock me-1"></i>Default: 11:59 PM</span>
+                            </div>
                             <input type="datetime-local" name="expiry_date" id="edit_expiry_date" class="form-control" style="background:#101726; border-color:#293647; color:#fff;" required>
+                            <div class="d-flex flex-wrap gap-1 mt-2 align-items-center">
+                                <span class="text-muted small me-1" style="font-size:0.75rem;">Presets (11:59 PM):</span>
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem; border-color:#334155; color:#cbd5e1;" onclick="setExpiryPreset('edit', 'today')">Today</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem; border-color:#334155; color:#cbd5e1;" onclick="setExpiryPreset('edit', 'tomorrow')">Tomorrow</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem; border-color:#334155; color:#cbd5e1;" onclick="setExpiryPreset('edit', '3days')">+3 Days</button>
+                                <button type="button" class="btn btn-sm btn-outline-info py-0 px-2" style="font-size:0.75rem;" onclick="setExpiryTime1159('edit')" title="Set time to 11:59 PM"><i class="bi bi-clock me-1"></i>11:59 PM</button>
+                            </div>
                             <small class="text-muted d-block mt-1">Set when this task expires. Submissions past this date will be tagged as Late.</small>
                         </div>
                     </div>
@@ -1961,7 +2030,73 @@ if ($loggedUserId) {
         });
     }
 
+    function setExpiryPreset(prefix, type) {
+        var input = document.getElementById(prefix + '_expiry_date');
+        if (!input) return;
+        var d = new Date();
+        if (type === 'tomorrow') {
+            d.setDate(d.getDate() + 1);
+        } else if (type === '3days') {
+            d.setDate(d.getDate() + 3);
+        } else if (type === 'endofweek') {
+            var day = d.getDay();
+            var diff = (day === 0 ? 0 : 7 - day);
+            d.setDate(d.getDate() + diff);
+        }
+        var yyyy = d.getFullYear();
+        var mm = String(d.getMonth() + 1).padStart(2, '0');
+        var dd = String(d.getDate()).padStart(2, '0');
+        input.value = yyyy + '-' + mm + '-' + dd + 'T23:59';
+    }
+
+    function setExpiryTime1159(prefix) {
+        var input = document.getElementById(prefix + '_expiry_date');
+        if (!input) return;
+        var val = input.value;
+        if (val && val.includes('T')) {
+            var datePart = val.split('T')[0];
+            input.value = datePart + 'T23:59';
+        } else {
+            setExpiryPreset(prefix, 'today');
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
+        // Initialize default 11:59 PM expiry date on Add Task Modal
+        var addTaskModalEl = document.getElementById('addTaskModal');
+        if (addTaskModalEl) {
+            addTaskModalEl.addEventListener('show.bs.modal', function () {
+                var expInput = document.getElementById('add_expiry_date');
+                if (expInput && (!expInput.value || expInput.value.trim() === '')) {
+                    setExpiryPreset('add', 'today');
+                }
+                var addSearchInput = document.getElementById('add_member_search');
+                if (addSearchInput) {
+                    addSearchInput.value = '';
+                    filterMemberList('add');
+                }
+            });
+        }
+
+        // Whenever a user selects a date from calendar or changes it, ensure the time portion defaults to 23:59
+        ['add', 'edit'].forEach(function(prefix) {
+            var el = document.getElementById(prefix + '_expiry_date');
+            if (el) {
+                el.addEventListener('change', function() {
+                    if (this.value) {
+                        var parts = this.value.split('T');
+                        if (parts.length === 2) {
+                            if (!parts[1] || parts[1] === '00:00') {
+                                this.value = parts[0] + 'T23:59';
+                            }
+                        } else if (parts.length === 1 && parts[0]) {
+                            this.value = parts[0] + 'T23:59';
+                        }
+                    }
+                });
+            }
+        });
+
         var warningModalEl = document.getElementById('cardCatMismatchWarningModal');
         if (warningModalEl) {
             warningModalEl.addEventListener('hidden.bs.modal', function () {
@@ -2037,20 +2172,141 @@ if ($loggedUserId) {
         }
     }
 
+    function clearMemberSearch(prefix) {
+        var searchInput = document.getElementById(prefix + '_member_search');
+        if (searchInput) {
+            searchInput.value = '';
+        }
+        filterMemberList(prefix);
+        if (searchInput) {
+            searchInput.focus();
+        }
+    }
+
     function filterMemberList(prefix) {
         var searchInput = document.getElementById(prefix + '_member_search');
-        var search = (searchInput ? searchInput.value : '').toLowerCase();
-        var items = document.querySelectorAll('#' + prefix + '_member_list .member-check-item');
+        var rawSearch = searchInput ? searchInput.value : '';
+        var search = rawSearch.trim().toLowerCase();
+        var listContainer = document.getElementById(prefix + '_member_list');
+        var clearBtn = document.getElementById(prefix + '_member_search_clear');
+        if (clearBtn) {
+            clearBtn.style.display = search ? 'inline-block' : 'none';
+        }
+        if (!listContainer) return;
+
+        var items = Array.from(listContainer.querySelectorAll('.member-check-item'));
+        var existingEmptyMsg = listContainer.querySelector('.no-member-match');
+
+        if (!search) {
+            // Restore original order and show all items
+            items.sort(function(a, b) {
+                var idxA = parseInt(a.getAttribute('data-index') || '0', 10);
+                var idxB = parseInt(b.getAttribute('data-index') || '0', 10);
+                return idxA - idxB;
+            });
+            items.forEach(function(item) {
+                item.classList.remove('d-none', 'hidden-member');
+                item.style.setProperty('display', 'flex', 'important');
+                listContainer.appendChild(item);
+            });
+            if (existingEmptyMsg) existingEmptyMsg.remove();
+            return;
+        }
+
+        var matched = [];
+        var unmatched = [];
+
         items.forEach(function(item) {
-            var text = item.textContent.toLowerCase();
-            item.style.display = text.includes(search) ? 'flex' : 'none';
+            var fullName = (item.getAttribute('data-fullname') || '').toLowerCase().trim();
+            var username = (item.getAttribute('data-username') || '').toLowerCase().trim().replace(/^@/, '');
+            var card = (item.getAttribute('data-card') || '').toLowerCase().trim();
+            var category = (item.getAttribute('data-category') || '').toLowerCase().trim();
+            var cardCat = (card + ' ' + category).trim();
+            var textContent = (item.textContent || '').toLowerCase();
+            var words = fullName.split(/\s+/).filter(Boolean);
+
+            var score = -1;
+
+            if (fullName === search || username === search) {
+                score = 0; // Exact match
+            } else if (fullName.startsWith(search)) {
+                score = 1; // Full name starts with search (e.g. "Ali" for "ali")
+            } else if (words.some(function(w) { return w.startsWith(search); })) {
+                score = 2; // Any word in name starts with search (e.g. "Ahsan Ali" for "ali")
+            } else if (username.startsWith(search)) {
+                score = 3; // Username starts with search
+            } else if (fullName.includes(search)) {
+                score = 4; // Full name contains search anywhere
+            } else if (username.includes(search)) {
+                score = 5; // Username contains search anywhere
+            } else if (card.startsWith(search) || category === search || cardCat.startsWith(search)) {
+                score = 6; // Card or category match
+            } else if (textContent.includes(search)) {
+                score = 7; // Any other visible text match
+            }
+
+            if (score !== -1) {
+                matched.push({
+                    el: item,
+                    score: score,
+                    name: fullName,
+                    origIdx: parseInt(item.getAttribute('data-index') || '0', 10)
+                });
+            } else {
+                unmatched.push(item);
+            }
         });
+
+        // 1. Strictly hide ALL unmatched items immediately
+        unmatched.forEach(function(el) {
+            el.classList.add('d-none', 'hidden-member');
+            el.style.setProperty('display', 'none', 'important');
+        });
+
+        // 2. Sort matched items: best matches first, then alphabetically by name
+        matched.sort(function(a, b) {
+            if (a.score !== b.score) {
+                return a.score - b.score;
+            }
+            return a.name.localeCompare(b.name);
+        });
+
+        // 3. Show only matched items and bring to top in order
+        matched.forEach(function(m) {
+            m.el.classList.remove('d-none', 'hidden-member');
+            m.el.style.setProperty('display', 'flex', 'important');
+            listContainer.appendChild(m.el);
+        });
+
+        // 4. Scroll container to top
+        listContainer.scrollTop = 0;
+
+        // 5. Handle empty state / no match
+        if (matched.length === 0) {
+            if (!existingEmptyMsg) {
+                existingEmptyMsg = document.createElement('div');
+                existingEmptyMsg.className = 'no-member-match text-center text-muted py-3 small';
+                existingEmptyMsg.style.cssText = 'background: rgba(16, 23, 38, 0.4); border-radius: 6px;';
+                listContainer.appendChild(existingEmptyMsg);
+            }
+            existingEmptyMsg.innerHTML = '<i class="bi bi-search me-1"></i>No members found matching "<strong>' + escapeHtml(rawSearch) + '</strong>"<br>' +
+                '<button type="button" class="btn btn-sm btn-outline-info mt-2" style="font-size:0.75rem; padding: 2px 10px;" onclick="clearMemberSearch(\'' + prefix + '\')"><i class="bi bi-x-circle me-1"></i>Clear Search</button>';
+            existingEmptyMsg.style.display = 'block';
+        } else {
+            if (existingEmptyMsg) {
+                existingEmptyMsg.remove();
+            }
+        }
     }
 
     function selectAllMembers(prefix, isSelectAll) {
         var items = document.querySelectorAll('#' + prefix + '_member_list .member-check-item');
         items.forEach(function(item) {
-            if (item.style.display !== 'none') {
+            var isHidden = item.classList.contains('d-none') || 
+                           item.classList.contains('hidden-member') || 
+                           item.style.display === 'none' ||
+                           (window.getComputedStyle && window.getComputedStyle(item).display === 'none');
+            if (!isHidden) {
                 var cb = item.querySelector('input[type="checkbox"]');
                 if (cb) cb.checked = isSelectAll;
             }
@@ -2095,6 +2351,15 @@ if ($loggedUserId) {
         document.getElementById('edit_description').value = description || '';
         document.getElementById('edit_specifics').value = specifics || '';
         document.getElementById('edit_expiry_date').value = expiry || '';
+        if (!expiry) {
+            setExpiryPreset('edit', 'today');
+        }
+
+        var editSearchInput = document.getElementById('edit_member_search');
+        if (editSearchInput) {
+            editSearchInput.value = '';
+            filterMemberList('edit');
+        }
 
         var editModal = new bootstrap.Modal(document.getElementById('editTaskModal'));
         editModal.show();
@@ -2266,6 +2531,7 @@ if ($loggedUserId) {
         if (c === 'gold' || c === 'g') return 'bar-gold';
         if (c === 'diamond' || c === 'd') return 'bar-diamond';
         if (c === 'platinum' || c === 'p') return 'bar-platinum';
+        if (c === 'metal' || c === 'm') return 'bar-metal';
         return 'bar-default';
     }
 
@@ -2299,7 +2565,7 @@ if ($loggedUserId) {
         if (!code) return [{ text: 'TASK', card: rowCard || 'Diamond' }];
         code = unifyTaskCodeJs(code);
 
-        var re = /([SGDP]?)([ABCD])(\d+)/gi;
+        var re = /([SGDPM]?)([ABCD])(\d+)/gi;
         var match;
         var matches = [];
         var reconstructed = '';
@@ -2317,6 +2583,7 @@ if ($loggedUserId) {
                 else if (cLetter === 'G') currentCard = 'Gold';
                 else if (cLetter === 'D') currentCard = 'Diamond';
                 else if (cLetter === 'P') currentCard = 'Platinum';
+                else if (cLetter === 'M') currentCard = 'Metal';
 
                 parts.push({
                     text: m[0],
@@ -2866,6 +3133,14 @@ if ($loggedUserId) {
 
         if (searchInput) searchInput.addEventListener('keyup', filterTable);
         if (timeFilter) timeFilter.addEventListener('change', filterTable);
+
+        // Reset member search when Add Task Modal opens
+        var addTaskModalEl = document.getElementById('addTaskModal');
+        if (addTaskModalEl) {
+            addTaskModalEl.addEventListener('show.bs.modal', function() {
+                clearMemberSearch('add');
+            });
+        }
     });
     </script>
 

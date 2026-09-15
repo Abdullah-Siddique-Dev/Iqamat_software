@@ -16,6 +16,8 @@ $colCard = mysqli_query($conn, "SHOW COLUMNS FROM users LIKE 'card'");
 if (!$colCard || mysqli_num_rows($colCard) == 0) {
     mysqli_query($conn, "ALTER TABLE users ADD COLUMN card VARCHAR(50) DEFAULT 'Diamond' AFTER area");
     mysqli_query($conn, "UPDATE users SET card = 'Diamond' WHERE card IS NULL OR card = ''");
+} else {
+    @mysqli_query($conn, "ALTER TABLE users MODIFY COLUMN card VARCHAR(50) DEFAULT 'Diamond'");
 }
 $colCategory = mysqli_query($conn, "SHOW COLUMNS FROM users LIKE 'category'");
 if (!$colCategory || mysqli_num_rows($colCategory) == 0) {
@@ -165,6 +167,7 @@ include "footer.php"; ?>
                                     <option value="Diamond">Diamond</option>
                                     <option value="Gold">Gold</option>
                                     <option value="Silver">Silver</option>
+                                    <option value="Metal">Metal</option>
                                 </select>
                             </div>
                             <div class="col-sm-6 mb-3 text-start">

@@ -112,6 +112,7 @@ $userPhotoUrl = $hasUserPhoto
 .badge-card-diamond { background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; font-weight: 600; font-size: 0.78rem; padding: 4px 10px; border-radius: 6px; }
 .badge-card-gold { background: linear-gradient(135deg, #d97706, #b45309); color: #fff; font-weight: 600; font-size: 0.78rem; padding: 4px 10px; border-radius: 6px; }
 .badge-card-silver { background: linear-gradient(135deg, #64748b, #475569); color: #fff; font-weight: 600; font-size: 0.78rem; padding: 4px 10px; border-radius: 6px; }
+.badge-card-metal { background: linear-gradient(135deg, #52525b, #27272a); color: #fff; font-weight: 600; font-size: 0.78rem; padding: 4px 10px; border-radius: 6px; }
 .badge-category { background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; font-weight: 700; font-size: 0.78rem; padding: 4px 10px; border-radius: 6px; }
 
 .badge-role-admin { background: #dc2626; color: #fff; font-size: 0.78rem; padding: 4px 10px; border-radius: 6px; }

@@ -35,6 +35,8 @@ if ($profileId !== $loggedId && !$canViewOther) { header("Location: userProfile.
 $colCard = mysqli_query($conn, "SHOW COLUMNS FROM users LIKE 'card'");
 if (!$colCard || mysqli_num_rows($colCard) == 0) {
     mysqli_query($conn, "ALTER TABLE users ADD COLUMN card VARCHAR(50) DEFAULT 'Diamond' AFTER area");
+} else {
+    @mysqli_query($conn, "ALTER TABLE users MODIFY COLUMN card VARCHAR(50) DEFAULT 'Diamond'");
 }
 $colCategory = mysqli_query($conn, "SHOW COLUMNS FROM users LIKE 'category'");
 if (!$colCategory || mysqli_num_rows($colCategory) == 0) {
@@ -1145,6 +1147,7 @@ $totalTeamsCount = count($supervisedAreas) + count($userTeams);
                                 <option value="Diamond" <?= ($profileUser['card'] ?? 'Diamond')==='Diamond'?'selected':'' ?>>Diamond</option>
                                 <option value="Gold"    <?= ($profileUser['card'] ?? '')==='Gold'?'selected':'' ?>>Gold</option>
                                 <option value="Silver"  <?= ($profileUser['card'] ?? '')==='Silver'?'selected':'' ?>>Silver</option>
+                                <option value="Metal"   <?= ($profileUser['card'] ?? '')==='Metal'?'selected':'' ?>>Metal</option>
                             </select>
                         </div>
                         <div class="sf-group"><label class="sf-label">Category</label>

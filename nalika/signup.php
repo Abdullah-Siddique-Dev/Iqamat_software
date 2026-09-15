@@ -474,6 +474,7 @@
               <option value="Diamond">Diamond</option>
               <option value="Gold">Gold</option>
               <option value="Silver">Silver</option>
+              <option value="Metal">Metal</option>
             </select>
           </div>
           <div class="col-sm-6 mb-3 text-start">
